@@ -141,7 +141,7 @@ def calculate_balance():
     total_income = Decimal('0.00')
     total_expenses = Decimal('0.00')
     for t in transactions:
-        if t['lloji'] == 'income':
+        if t['lloji'] == 'te ardhura':
             total_income += t['shuma']
         else:
             total_expenses += t['shuma']
@@ -176,9 +176,9 @@ def main():
         choice = input("Vendosni Zgjedhjen Tuaj (1-6): ").strip()
 
         if choice == '1':
-            add_transaction('income')
+            add_transaction('te ardhura')
         elif choice == '2':
-            add_transaction('expense')
+            add_transaction('shpenzime')
         elif choice == '3':
             view_transactions()
         elif choice == '4':
