@@ -24,10 +24,6 @@ def load_transactions():
                 skipped = 0
                 for row in reader:
                     try:
-                        # Support files written by older versions of this script,
-                        # which saved the description under the key "pershrimi".
-                        if 'pershkrimi' not in row and 'pershrimi' in row:
-                            row['pershkrimi'] = row.pop('pershrimi')
                         row['shuma'] = Decimal(row['shuma'])
                         transactions.append(row)
                     except (InvalidOperation, KeyError, TypeError):
