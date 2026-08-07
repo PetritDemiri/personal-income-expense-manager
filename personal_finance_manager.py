@@ -73,17 +73,21 @@ def add_transaction(trans_type):
         except InvalidOperation:
             print("Shuma eshte e pavlefshme. Ju lutem, vendosni nje numer.")
 
-    date_choice = input("Te perdoret data e tanishme? (po/jo): ").strip().lower()
-    if date_choice == 'p' or date_choice == 'po':
-        date = get_current_date()
-    else:
-        while True:
-            date = input("Vendosni daten ( dite-muaj-Vit ): ").strip()
-            try:
-                datetime.datetime.strptime(date, '%d-%m-%Y')
-                break
-            except ValueError:
-                print("Format i pavlefshem i dates. Ju lutem perdorni formatin dita-muaji-Viti.")
+    while True:
+        date_choice = input("Te perdoret data e tanishme? (po/jo): ").strip().lower()
+        if date_choice == "po":
+            date = get_current_date()
+        elif date_choice == "jo":
+            while True:
+                date = input("Vendosni daten ( dite-muaj-Vit ): ").strip()
+                try:
+                    datetime.datetime.strptime(date, '%d-%m-%Y')
+                    break
+                except ValueError:
+                    print("Format i pavlefshem i dates. Ju lutem perdorni formatin dita-muaji-Viti.")
+            break
+        else:
+            print("Ju lutem shkruani vetëm 'po ose 'jo'.")
 
     transaction = {
         'lloji': trans_type,
