@@ -92,27 +92,33 @@ def add_transaction(trans_type):
         'data': date
     }
     transactions.append(transaction)
-    print(f"{trans_type.capitalize()} eshte shtuar me sukses!")
+    print(f"{trans_type} eshte shtuar me sukses!")
     save_transactions()
 
 
 def view_transactions():
-    """Display all transactions, numbered so they can be referenced for deletion."""
+    """Display all transactions, numbered so they can be referenced for deletion.
+
+    Lloji and Pershkrimi columns are sized to the longest value actually
+    present (or the header, if that's longer), so type labels and
+    descriptions are always shown in full - nothing is truncated.
+    """
     if not transactions:
         print("\nNuk u gjet asnje transaksion.")
         return
 
+    lloji_width = max(len('Lloji'), max(len(t['lloji']) for t in transactions))
+    pershkrimi_width = max(len('Pershkrimi'), max(len(t['pershkrimi']) for t in transactions))
+    total_width = 4 + 12 + 1 + lloji_width + 1 + pershkrimi_width + 1 + 12
+
     print("\nTe gjitha transaksionet:")
-    print("-" * 84)
-    print(f"{'#':<4}{'Data':<12} {'Lloji':<8} {'Pershkrimi':<30} {'Shuma':>10}")
-    print("-" * 84)
+    print("-" * total_width)
+    print(f"{'#':<4}{'Data':<12} {'Lloji':<{lloji_width}} {'Pershkrimi':<{pershkrimi_width}} {'Shuma':>12}")
+    print("-" * total_width)
     for i, t in enumerate(transactions, start=1):
         amount_str = f"{CURRENCY_SYMBOL}{t['shuma']:.2f}"
-        description = t['pershkrimi']
-        if len(description) > 28:
-            description = description[:27] + "…"
-        print(f"{i:<4}{t['data']:<12} {t['lloji']:<8} {description:<30} {amount_str:>10}")
-    print("-" * 84)
+        print(f"{i:<4}{t['data']:<12} {t['lloji']:<{lloji_width}} {t['pershkrimi']:<{pershkrimi_width}} {amount_str:>12}")
+    print("-" * total_width)
 
 
 def delete_transaction():
@@ -141,7 +147,7 @@ def calculate_balance():
     total_income = Decimal('0.00')
     total_expenses = Decimal('0.00')
     for t in transactions:
-        if t['lloji'] == 'te ardhura':
+        if t['lloji'] == 'Te Ardhura':
             total_income += t['shuma']
         else:
             total_expenses += t['shuma']
@@ -176,9 +182,9 @@ def main():
         choice = input("Vendosni Zgjedhjen Tuaj (1-6): ").strip()
 
         if choice == '1':
-            add_transaction('te ardhura')
+            add_transaction('Te Ardhura')
         elif choice == '2':
-            add_transaction('shpenzime')
+            add_transaction('Shpenzime')
         elif choice == '3':
             view_transactions()
         elif choice == '4':
