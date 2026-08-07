@@ -1,24 +1,91 @@
+# ---------------------------------------------------------------------------
+# Personal data (generated at runtime)
+# ---------------------------------------------------------------------------
+# These hold real financial records and must never be committed.
+transactions.csv
+recurring.csv
+
+# Keep sample/template data if you ever add it, e.g.:
+# !transactions.example.csv
+
+# ---------------------------------------------------------------------------
 # Python
+# ---------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
-*.pyo
-*.egg-info/
+*$py.class
+*.so
+
+# Distribution / packaging
 build/
 dist/
+sdist/
+wheels/
+*.egg
+*.egg-info/
+.eggs/
+MANIFEST
 
+# Unit tests / coverage
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.cache
+
+# Type checkers / linters
+.mypy_cache/
+.dmypy.json
+.pyre/
+.ruff_cache/
+
+# ---------------------------------------------------------------------------
 # Virtual environments
+# ---------------------------------------------------------------------------
 venv/
 .venv/
 env/
+ENV/
+.python-version
 
-# Project data (generated at runtime — contains personal financial records)
-transactions.csv
+# ---------------------------------------------------------------------------
+# Environment / secrets
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
 
-# Editor / IDE
+# ---------------------------------------------------------------------------
+# Editors and IDEs
+# ---------------------------------------------------------------------------
 .vscode/
 .idea/
+*.iml
 *.swp
+*.swo
+*~
+.\#*
+\#*\#
 
-# OS
+# ---------------------------------------------------------------------------
+# Operating system
+# ---------------------------------------------------------------------------
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ---------------------------------------------------------------------------
+# Backups and scratch files
+# ---------------------------------------------------------------------------
+*.bak
+*.tmp
+*.log
+*.orig
