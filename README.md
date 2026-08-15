@@ -1,6 +1,6 @@
 # Personal Finance Manager
 
-[![CI](https://github.com/PetritDemiri/personal-income-expense-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/REPO/actions/workflows/ci.yml)
+[![CI](https://github.com/PetritDemiri/personal-income-expense-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/PetritDemiri/personal-income-expense-manager/actions/actions/workflows/ci.yml)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -12,7 +12,7 @@ A command-line personal income and expense manager, with an Albanian interface a
 ## Features
 
 - **Transactions** — add, edit in place, and delete income and expense entries
-- **Categories and subcategories** — pick from suggestions or type your own; anything you've used before is suggested automatically, with the catch-all always listed last
+- **Categories and subcategories** — pick from suggestions or type your own; anything you've used before is suggested automatically, sorted in Albanian alphabetical order (digraphs included) with the catch-all always last
 - **Budgets** — monthly spending limits per category, with a warning at the moment you overspend
 - **Monthly reports** — totals, per-category breakdown, and month-over-month comparison
 - **Date filtering** — a single date or an inclusive range, with totals for the filtered set
@@ -22,7 +22,8 @@ A command-line personal income and expense manager, with an Albanian interface a
 - **Two languages** — Albanian by default, English via `--gjuha en`; stored data is identical either way
 - **Command-line flags** — Albanian primary, English aliases, with the interactive menu as the default
 - **Exact money** — `Decimal` throughout, so totals never drift from floating-point rounding
-- **Crash-safe saves** — atomic writes mean an interrupted save can't corrupt or truncate your data
+- **SQLite storage** — transactional writes, indexed date queries, and automatic schema migrations; CSV remains available via `--csv`
+- **Crash-safe saves** — a save that touches more than one table lands completely or not at all
 
 ## Install
 
@@ -92,6 +93,8 @@ Albanian flags are primary; English aliases work for all of them.
 | `--muaji` | `--month` | Month for the report (`mm-yyyy`) |
 | `--gjuha` | `--language` | Interface language: `sq` (default) or `en` |
 | `--pa-ngjyra` | `--no-color` | Disable colored output |
+| `--csv` | — | Use CSV files instead of the database |
+| `--baza` | `--database` | Path to the database file |
 
 `--data` works by context: with `--lista` it filters to a single date; with `--shto-*` it sets the new transaction's date. Any field omitted when adding is prompted for interactively.
 
@@ -110,6 +113,16 @@ financat --gjuha en --balance
 ### Categories and subcategories
 
 Every transaction has a category; a subcategory is optional. Suggestions come from a built-in list plus anything you've used before, and the catch-all (`Te tjera`) is always kept at the end of the list no matter how many categories you add of your own.
+
+Everything else is sorted in **Albanian alphabetical order**, so a category you type takes its natural place in the list rather than landing wherever you happened to add it. The ordering follows the full 36-letter alphabet, including its nine digraphs:
+
+```
+a b c ç d dh e ë f g gj h i j k l ll m n nj o p q r rr s sh t th u v x xh y z zh
+```
+
+Each digraph is a letter in its own right, so every word beginning with S comes before every word beginning with Sh — `Sende`, `Sy`, then `Shendetesi`. Accented letters sort in place too: `Çaji` after `Cak`, `Ëmbëlsira` between `Etje` and `Fatura`. Sorting by Unicode code point, which is what most languages do by default, gets both of these wrong: it interleaves the S and Sh words and pushes every accented word past Z.
+
+Runs of digits compare as numbers, so `Muaji 9` comes before `Muaji 10`. Latin letters absent from Albanian are placed where a reader would expect rather than at the end — only `w` is missing, and it sits between `v` and `x` — so English category names sort correctly as well.
 
 Subcategories appear as a table column only when something actually uses them, so the listing stays narrow if you don't need them. Summaries and reports nest subcategory totals under their category, and search matches on subcategories too.
 
@@ -141,6 +154,7 @@ personal_finance/
     recurring.py   Recurrence scheduling
     reports.py     Totals, filtering, monthly reports
     budgets.py     Budget status calculations
+    collation.py   Albanian alphabetical ordering
     colors.py      ANSI handling and terminal detection
     display.py     Table and summary rendering
     app.py         Service layer tying it together
@@ -177,7 +191,17 @@ The tape runs against a temporary data directory, so your real data never appear
 
 ## Data storage
 
-Three CSV files are created in the working directory (override with `FINANCE_DATA_DIR`):
+Data lives in a SQLite database, `finance.db`, in the working directory (override the directory with `FINANCE_DATA_DIR`, or the file itself with `--baza`).
+
+Money is stored as an integer number of cents rather than a float, so amounts stay exact. Dates are stored ISO-formatted so they sort and index properly, and are converted back to `dd-mm-yyyy` for display. The schema carries a version number, and migrations run automatically on open — adding a column later is a numbered migration step, not a rewrite.
+
+### Why a database
+
+Two separate CSV files cannot be written atomically. Generating recurring transactions writes both the transactions and the updated rules; a crash between those two writes left the transactions on disk while the rules still believed nothing had been generated, so the next run created them all a second time. In the database both tables commit together or neither does.
+
+### CSV mode
+
+Passing `--csv` uses the original three-file layout instead:
 
 | File | Columns |
 |---|---|
@@ -189,7 +213,9 @@ All three are gitignored — they hold personal financial data. Corrupted rows a
 
 ### Migration from earlier versions
 
-Existing data loads with no manual conversion:
+On first run, if a database does not exist yet and CSV files do, their contents are imported automatically and announced. **The CSV files are left untouched**, so the move is reversible — `--csv` goes straight back to them. The import only ever runs against a brand-new, empty database, so it cannot run twice or overwrite anything.
+
+Older CSV files load with no manual conversion:
 
 - **Four-column files** (before categories) load fine and are shown as `Pa kategori`.
 - **Files without `nenkategoria`** (before subcategories) load fine with no subcategory set.

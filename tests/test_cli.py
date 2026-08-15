@@ -204,6 +204,7 @@ class TestCliEndToEnd:
     def test_invalid_amount_is_rejected(self, capsys, tmp_path):
         main(
             [
+                "--csv",
                 "--shto-shpenzime",
                 "--pershkrimi",
                 "x",
@@ -221,6 +222,7 @@ class TestCliEndToEnd:
     def test_invalid_date_is_rejected(self, capsys, tmp_path):
         main(
             [
+                "--csv",
                 "--shto-shpenzime",
                 "--pershkrimi",
                 "x",
@@ -392,6 +394,7 @@ class TestCliEndToEnd:
     def test_language_does_not_change_stored_data(self, capsys, tmp_path):
         main(
             [
+                "--csv",
                 "--gjuha",
                 "en",
                 "--add-expense",
@@ -419,10 +422,10 @@ class TestCliEndToEnd:
             encoding="utf-8",
         )
 
-        main(["--perserit"])
+        main(["--csv", "--perserit"])
         assert "gjeneruan" in capsys.readouterr().out
 
-        main(["--perseritjet"])
+        main(["--csv", "--perseritjet"])
         assert "Qera" in capsys.readouterr().out
 
     def test_recurring_does_not_duplicate_across_runs(self, capsys, tmp_path):
@@ -432,11 +435,11 @@ class TestCliEndToEnd:
             encoding="utf-8",
         )
 
-        main(["--perserit"])
+        main(["--csv", "--perserit"])
         capsys.readouterr()
         first = (tmp_path / "transactions.csv").read_text(encoding="utf-8")
 
-        main(["--perserit"])
+        main(["--csv", "--perserit"])
         capsys.readouterr()
         assert (tmp_path / "transactions.csv").read_text(encoding="utf-8") == first
 

@@ -6,6 +6,7 @@ That is what makes this module straightforward to test.
 
 from decimal import Decimal
 
+from .collation import sort_names
 from .config import EXPENSE, INCOME
 from .dates import month_bounds, month_of, previous_month
 
@@ -108,18 +109,23 @@ def search(transactions, term):
     ]
 
 
-def other_last(options):
-    """Move the catch-all category to the end of a suggestion list.
+def ordered_options(options):
+    """Sort names in Albanian alphabetical order, keeping the catch-all last.
 
-    Without this, categories the user types themselves get appended after
-    "Te tjera", so the list ends on a specific category and the catch-all sits
-    in the middle - which reads as though it were just another category.
+    Applied to every suggestion list, so a category the user types themselves
+    takes its alphabetical place rather than being appended to the end - and
+    "Te tjera" stays at the bottom where a catch-all belongs, however many
+    names are added around it.
+
+    Ordering follows the Albanian alphabet, digraphs included: see collation.
     """
     from .config import OTHER_CATEGORY
 
-    rest = [o for o in options if o != OTHER_CATEGORY]
+    rest = sort_names(o for o in options if o != OTHER_CATEGORY)
     catch_all = [o for o in options if o == OTHER_CATEGORY]
-    return rest + catch_all
+    # Deduplicated in case the catch-all appears both as a suggestion and in
+    # the user's own data.
+    return rest + catch_all[:1]
 
 
 def totals_by_category(transactions, trans_type):
@@ -222,7 +228,7 @@ def known_categories(transactions, trans_type, suggested):
             continue
         if t.kategoria and t.kategoria not in options and t.kategoria != DEFAULT_CATEGORY:
             options.append(t.kategoria)
-    return other_last(options)
+    return ordered_options(options)
 
 
 def known_subcategories(transactions, trans_type, category, suggested):
@@ -233,4 +239,4 @@ def known_subcategories(transactions, trans_type, category, suggested):
             continue
         if t.nenkategoria and t.nenkategoria not in options:
             options.append(t.nenkategoria)
-    return other_last(options)
+    return ordered_options(options)

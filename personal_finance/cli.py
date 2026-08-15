@@ -5,12 +5,13 @@ With no flags at all, the interactive menu runs.
 """
 
 import argparse
+import os
 import sys
 
 from . import colors
 from .app import FinanceApp
 from .budgets import all_statuses, check_after_adding
-from .colors import BOLD, RED, paint
+from .colors import BOLD, DIM, RED, paint
 from .config import DEFAULT_CATEGORY, EXPENSE, INCOME
 from .dates import (
     format_date,
@@ -153,6 +154,20 @@ def build_parser():
         default="sq",
         help="Gjuha e nderfaqes / interface language (default: sq)",
     )
+    storage_group = parser.add_argument_group("ruajtja / storage")
+    storage_group.add_argument(
+        "--csv",
+        action="store_true",
+        help="Perdor skedaret CSV ne vend te bazes se te dhenave / use CSV files "
+        "instead of the database",
+    )
+    storage_group.add_argument(
+        "--baza",
+        "--database",
+        dest="baza",
+        help="Shtegu i bazes se te dhenave / path to the database file",
+    )
+
     output.add_argument(
         "--pa-ngjyra",
         "--no-color",
@@ -334,6 +349,48 @@ def run_cli(app, args):
     return did_something
 
 
+def build_storage(args, quiet=False):
+    """Pick the backend and, the first time, move existing CSV data into it.
+
+    Returns (storage, migrated_count). The CSV files are left untouched, so the
+    move is reversible: --csv goes straight back to them.
+    """
+    from .storage import CsvStorage
+
+    if args.csv:
+        return CsvStorage(), 0
+
+    from .sqlite_storage import SqliteStorage
+
+    storage = SqliteStorage(database_file=args.baza)
+    migrated = 0
+
+    # Only ever on a brand-new, still-empty database, so this cannot overwrite
+    # data already in the database or run twice.
+    if storage.created and storage.is_empty():
+        csv_storage = CsvStorage()
+        if any(
+            os.path.exists(path)
+            for path in (
+                csv_storage.transactions_file,
+                csv_storage.recurring_file,
+                csv_storage.budgets_file,
+            )
+        ):
+            try:
+                migrated = storage.import_from(csv_storage)
+                # Always announced, even in flag mode. Routine load/save
+                # notices are noise worth suppressing; a one-time move of the
+                # user's data to a new place is not.
+                if migrated:
+                    print(paint(t("migrated", count=migrated, file=storage.location), BOLD))
+                    print(paint(t("csv_kept"), DIM))
+            except Exception as error:
+                print(paint(t("migrate_failed", error=error), RED))
+
+    return storage, migrated
+
+
 def main(argv=None):
     """Entry point. Returns a process exit code."""
     parser = build_parser()
@@ -359,7 +416,8 @@ def main(argv=None):
         ]
     )
 
-    app = FinanceApp(quiet=not interactive)
+    storage, migrated = build_storage(args, quiet=not interactive)
+    app = FinanceApp(storage=storage, quiet=not interactive)
     app.load()
 
     # Catch up on anything due since the last run. --perserit reports the same
@@ -376,6 +434,13 @@ def main(argv=None):
         print()
         print(t("goodbye"))
         return 130
+    except BrokenPipeError:
+        # Whatever was reading the output closed the pipe first - piping into
+        # `head` does this. Point stdout at the null device so the interpreter
+        # does not print its own warning while shutting down, then exit with
+        # the conventional 128 + SIGPIPE.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 141
     return 0
 
 

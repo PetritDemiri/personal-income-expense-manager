@@ -61,6 +61,49 @@ def atomic_write_csv(path, fieldnames, rows):
         raise
 
 
+def atomic_write_two_csvs(first, second):
+    """Write two CSV files with the smallest possible window between them.
+
+    Each argument is a (path, fieldnames, rows) tuple. Both temporary files are
+    written and flushed to disk first, so the only thing left between the two
+    renames is two consecutive syscalls with no I/O in between.
+
+    This narrows the crash window; it does not close it. Only a backend with
+    real transactions can do that, which is what SqliteStorage is for.
+    """
+    prepared = []
+    try:
+        for path, fieldnames, rows in (first, second):
+            directory = os.path.dirname(os.path.abspath(path)) or "."
+            os.makedirs(directory, exist_ok=True)
+            handle = tempfile.NamedTemporaryFile(
+                mode="w",
+                newline="",
+                encoding="utf-8",
+                dir=directory,
+                prefix=".tmp-",
+                suffix=".csv",
+                delete=False,
+            )
+            with handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+                handle.flush()
+                os.fsync(handle.fileno())
+            prepared.append((handle.name, path))
+
+        for temp_path, path in prepared:
+            os.replace(temp_path, path)
+        prepared = []
+    finally:
+        for temp_path, _ in prepared:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+
 class Storage:
     """Interface every storage backend implements.
 
@@ -79,6 +122,16 @@ class Storage:
         raise NotImplementedError
 
     def save_recurring(self, rules):
+        raise NotImplementedError
+
+    def save_recurring_run(self, transactions, rules):
+        """Save generated transactions and the updated rules together.
+
+        Backends that support real transactions make this atomic. Backends
+        that do not should still make the gap between the two writes as small
+        as they can - a crash in that gap regenerates the same occurrences on
+        the next run.
+        """
         raise NotImplementedError
 
     def load_budgets(self):
@@ -113,6 +166,10 @@ class CsvStorage(Storage):
         self.transactions_file = transactions_file or data_path(TRANSACTIONS_FILE)
         self.recurring_file = recurring_file or data_path(RECURRING_FILE)
         self.budgets_file = budgets_file or data_path(BUDGETS_FILE)
+
+    @property
+    def location(self):
+        return self.transactions_file
 
     # -- generic helpers ---------------------------------------------------
 
@@ -154,6 +211,21 @@ class CsvStorage(Storage):
 
     def save_recurring(self, rules):
         self._write(self.recurring_file, RecurringRule.FIELDNAMES, rules)
+
+    def save_recurring_run(self, transactions, rules):
+        """Write both files back to back, with both already flushed to disk."""
+        atomic_write_two_csvs(
+            (
+                self.transactions_file,
+                Transaction.FIELDNAMES,
+                [t.to_row() for t in transactions],
+            ),
+            (
+                self.recurring_file,
+                RecurringRule.FIELDNAMES,
+                [r.to_row() for r in rules],
+            ),
+        )
 
     # -- budgets -----------------------------------------------------------
 

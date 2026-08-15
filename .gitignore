@@ -2,6 +2,10 @@
 # Personal data (generated at runtime)
 # ---------------------------------------------------------------------------
 # These hold real financial records and must never be committed.
+finance.db
+finance.db-wal
+finance.db-shm
+*.db
 transactions.csv
 recurring.csv
 budgets.csv

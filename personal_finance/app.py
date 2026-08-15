@@ -39,9 +39,7 @@ class FinanceApp:
         try:
             result = self.storage.load_transactions()
             self.transactions = list(result.records)
-            self._notice(
-                t("loaded", count=len(self.transactions), file=self.storage.transactions_file)
-            )
+            self._notice(t("loaded", count=len(self.transactions), file=self.storage.location))
             if result.skipped:
                 self._notice(paint(t("skipped_rows", count=result.skipped), YELLOW))
         except Exception as error:
@@ -70,9 +68,7 @@ class FinanceApp:
         try:
             self.storage.save_transactions(self.transactions)
             if announce:
-                self._notice(
-                    t("saved", count=len(self.transactions), file=self.storage.transactions_file)
-                )
+                self._notice(t("saved", count=len(self.transactions), file=self.storage.location))
             return True
         except Exception as error:
             print(paint(t("save_error", error=error), RED))
@@ -149,8 +145,13 @@ class FinanceApp:
         as_of = as_of or today()
         generated = generate_due(self.recurring_rules, self.transactions, as_of)
         if generated:
-            self.save_transactions(announce=False)
-            self.save_recurring()
+            # Both must land together. Saving them separately means a crash in
+            # between leaves the transactions written while the rules still
+            # think nothing was generated, so the next run creates them again.
+            try:
+                self.storage.save_recurring_run(self.transactions, self.recurring_rules)
+            except Exception as error:
+                print(paint(t("save_error", error=error), RED))
         return generated
 
     def add_recurring(self, rule):

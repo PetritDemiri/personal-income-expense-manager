@@ -10,6 +10,7 @@ from decimal import Decimal
 import pytest
 
 from personal_finance import colors, i18n
+from personal_finance.collation import sort_names
 from personal_finance.config import (
     EXPENSE,
     INCOME,
@@ -23,7 +24,7 @@ from personal_finance.reports import (
     has_subcategories,
     known_categories,
     known_subcategories,
-    other_last,
+    ordered_options,
     search,
     totals_by_subcategory,
 )
@@ -42,18 +43,56 @@ def sub_transaction(category, subcategory, amount="10.00", trans_type=EXPENSE):
     )
 
 
-class TestOtherLast:
+class TestOrderedOptions:
     def test_moves_the_catch_all_to_the_end(self):
-        assert other_last(["A", OTHER_CATEGORY, "B"]) == ["A", "B", OTHER_CATEGORY]
+        assert ordered_options(["A", OTHER_CATEGORY, "B"]) == ["A", "B", OTHER_CATEGORY]
 
     def test_leaves_a_list_without_it_alone(self):
-        assert other_last(["A", "B"]) == ["A", "B"]
+        assert ordered_options(["A", "B"]) == ["A", "B"]
 
     def test_empty_list(self):
-        assert other_last([]) == []
+        assert ordered_options([]) == []
 
-    def test_preserves_the_order_of_everything_else(self):
-        assert other_last(["C", "A", OTHER_CATEGORY, "B"]) == ["C", "A", "B", OTHER_CATEGORY]
+    def test_sorts_alphabetically(self):
+        assert ordered_options(["C", "A", OTHER_CATEGORY, "B"]) == [
+            "A",
+            "B",
+            "C",
+            OTHER_CATEGORY,
+        ]
+
+    def test_sorting_is_case_insensitive(self):
+        assert ordered_options(["banana", "Apple", "cherry"]) == [
+            "Apple",
+            "banana",
+            "cherry",
+        ]
+
+    def test_albanian_letters_sort_in_alphabet_order(self):
+        """Sorting on raw code points would push every accented word past Z."""
+        assert ordered_options(["Zarf", "Ëmbëlsira", "Çaji", "Abonim"]) == [
+            "Abonim",
+            "Çaji",
+            "Ëmbëlsira",
+            "Zarf",
+        ]
+
+    def test_digraphs_follow_their_base_letter(self):
+        """Every S word comes before every Sh word, as in Albanian."""
+        assert ordered_options(["Shendetesi", "Sende", "Sy"]) == [
+            "Sende",
+            "Sy",
+            "Shendetesi",
+        ]
+
+    def test_catch_all_stays_last_even_though_it_would_sort_earlier(self):
+        # "Te tjera" would fall between S and U alphabetically.
+        result = ordered_options(["Ushqim", OTHER_CATEGORY, "Shendetesi"])
+        assert result == ["Shendetesi", "Ushqim", OTHER_CATEGORY]
+
+    def test_duplicate_catch_all_appears_once(self):
+        result = ordered_options(["A", OTHER_CATEGORY, OTHER_CATEGORY])
+        assert result == ["A", OTHER_CATEGORY]
 
 
 class TestCategoryOrdering:
@@ -399,3 +438,81 @@ class TestBreakdownAlignment:
         categories, subs = self.columns(transactions, EXPENSE, capsys)
         assert len(categories) == 1
         assert subs == set()
+
+
+class TestSuggestionListOrdering:
+    """Suggestion lists are alphabetical, with the catch-all pinned last.
+
+    Requested from real use: a category the user typed was appended to the end
+    of the list, so the order depended on when it was first used rather than on
+    anything the reader could predict.
+    """
+
+    def test_builtin_categories_are_alphabetical(self):
+        options = known_categories([], EXPENSE, SUGGESTED_CATEGORIES)
+        assert options[:-1] == sort_names(options[:-1])
+        assert options[-1] == OTHER_CATEGORY
+
+    def test_custom_category_takes_its_alphabetical_place(self):
+        # "Abonim" must come first, not last, even though it was added later.
+        transactions = [make_transaction(EXPENSE, category="Abonim")]
+        options = known_categories(transactions, EXPENSE, SUGGESTED_CATEGORIES)
+        assert options[0] == "Abonim"
+        assert options[-1] == OTHER_CATEGORY
+
+    def test_several_custom_categories_interleave_correctly(self):
+        transactions = [
+            make_transaction(EXPENSE, category="Kafene"),
+            make_transaction(EXPENSE, category="Abonim"),
+            make_transaction(EXPENSE, category="Zarf"),
+        ]
+        options = known_categories(transactions, EXPENSE, SUGGESTED_CATEGORIES)
+        assert options[0] == "Abonim"
+        assert options[-2] == "Zarf"
+        assert options[-1] == OTHER_CATEGORY
+        assert options.index("Kafene") < options.index("Qera")
+
+    def test_income_categories_are_alphabetical_too(self):
+        options = known_categories([], INCOME, SUGGESTED_CATEGORIES)
+        assert options[:-1] == sort_names(options[:-1])
+        assert options[-1] == OTHER_CATEGORY
+
+    def test_albanian_category_sorts_under_its_base_letter(self):
+        transactions = [make_transaction(EXPENSE, category="Ëmbëlsira")]
+        options = known_categories(transactions, EXPENSE, SUGGESTED_CATEGORIES)
+        # Between Argetim and Fatura, not shoved past Veshje.
+        assert options.index("Argetim") < options.index("Ëmbëlsira")
+        assert options.index("Ëmbëlsira") < options.index("Fatura")
+
+    def test_builtin_subcategories_are_alphabetical(self):
+        options = known_subcategories([], EXPENSE, "Ushqim", SUGGESTED_SUBCATEGORIES)
+        assert options[:-1] == sort_names(options[:-1])
+        assert options[-1] == OTHER_CATEGORY
+
+    def test_custom_subcategory_takes_its_alphabetical_place(self):
+        transactions = [sub_transaction("Ushqim", "Delivery")]
+        options = known_subcategories(transactions, EXPENSE, "Ushqim", SUGGESTED_SUBCATEGORIES)
+        assert options[0] == "Delivery"
+        assert options[-1] == OTHER_CATEGORY
+
+    def test_subcategories_of_an_unlisted_category_are_alphabetical(self):
+        transactions = [
+            sub_transaction("Kafene", "Espresso"),
+            sub_transaction("Kafene", "Americano"),
+        ]
+        options = known_subcategories(transactions, EXPENSE, "Kafene", SUGGESTED_SUBCATEGORIES)
+        assert options == ["Americano", "Espresso"]
+
+    def test_ordering_is_stable_regardless_of_insertion_order(self):
+        """Two users who add the same categories in different orders see the same list."""
+        first = [
+            make_transaction(EXPENSE, category="Zarf"),
+            make_transaction(EXPENSE, category="Abonim"),
+        ]
+        second = [
+            make_transaction(EXPENSE, category="Abonim"),
+            make_transaction(EXPENSE, category="Zarf"),
+        ]
+        assert known_categories(first, EXPENSE, SUGGESTED_CATEGORIES) == known_categories(
+            second, EXPENSE, SUGGESTED_CATEGORIES
+        )

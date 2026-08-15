@@ -39,6 +39,8 @@ LEGACY_TYPE_ALIASES = {
 # (and any future multi-profile support) away from real data.
 DATA_DIR = os.environ.get("FINANCE_DATA_DIR", ".")
 
+DATABASE_FILE = "finance.db"
+
 TRANSACTIONS_FILE = "transactions.csv"
 RECURRING_FILE = "recurring.csv"
 BUDGETS_FILE = "budgets.csv"

@@ -8,17 +8,49 @@ import pytest
 from personal_finance.app import FinanceApp
 from personal_finance.config import EXPENSE, INCOME
 from personal_finance.models import Budget, RecurringRule, Transaction
+from personal_finance.sqlite_storage import SqliteStorage
 from personal_finance.storage import CsvStorage
 
 
 @pytest.fixture
-def storage(tmp_path):
-    """CsvStorage pointed at a temporary directory, never at real data."""
+def csv_storage(tmp_path):
+    """CsvStorage pointed at a temporary directory, never at real data.
+
+    For tests that are specifically about the CSV backend - file layout,
+    corrupted rows, atomic renames.
+    """
     return CsvStorage(
         transactions_file=str(tmp_path / "transactions.csv"),
         recurring_file=str(tmp_path / "recurring.csv"),
         budgets_file=str(tmp_path / "budgets.csv"),
     )
+
+
+@pytest.fixture
+def sqlite_storage(tmp_path):
+    """SqliteStorage pointed at a temporary database."""
+    store = SqliteStorage(database_file=str(tmp_path / "finance.db"))
+    yield store
+    store.close()
+
+
+@pytest.fixture(params=["csv", "sqlite"])
+def storage(request, tmp_path):
+    """Every backend, one after the other.
+
+    Any test using this fixture runs once per backend, which is what proves
+    the two behave identically rather than merely being expected to.
+    """
+    if request.param == "csv":
+        yield CsvStorage(
+            transactions_file=str(tmp_path / "transactions.csv"),
+            recurring_file=str(tmp_path / "recurring.csv"),
+            budgets_file=str(tmp_path / "budgets.csv"),
+        )
+    else:
+        store = SqliteStorage(database_file=str(tmp_path / "finance.db"))
+        yield store
+        store.close()
 
 
 @pytest.fixture
