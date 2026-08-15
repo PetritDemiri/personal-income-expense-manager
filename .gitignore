@@ -4,6 +4,7 @@
 # These hold real financial records and must never be committed.
 transactions.csv
 recurring.csv
+budgets.csv
 
 # Keep sample/template data if you ever add it, e.g.:
 # !transactions.example.csv

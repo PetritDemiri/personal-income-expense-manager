@@ -1,0 +1,369 @@
+"""Perkthimet / Translations.
+
+Albanian is the default language. English is provided so the program can be
+demonstrated to people who do not read Albanian - the stored data is identical
+either way, only the display changes.
+
+Adding a language means adding one dictionary to MESSAGES; a missing key falls
+back to Albanian rather than crashing.
+"""
+
+from .config import EXPENSE, INCOME
+
+DEFAULT_LANGUAGE = "sq"
+
+MESSAGES = {
+    "sq": {
+        # General
+        "welcome": "Mire se vini ne Menaxherin e te Ardhurave dhe Shpenzimeve Personale!",
+        "goodbye": "Faleminderit qe perdoret Menaxherin e te Ardhurave dhe Shpenzimeve Personale. Mirupafshim!",
+        "cancelled": "Anuluar.",
+        "menu": "Menu:",
+        "choose": "Vendosni Zgjedhjen Tuaj ({range}): ",
+        "invalid_choice": "Zgjedhje e pavlefshme. Ju lutem, vendosni nje numer midis {low} dhe {high}.",
+        "invalid_number": "Numer i pavlefshem.",
+        "back": "Kthehu ne menune kryesore",
+        "press_enter_keep": "Shtypni Enter per te lene nje fushe pa ndryshim.",
+        # Types
+        "type_income": "Te Ardhura",
+        "type_expense": "Shpenzime",
+        "choose_type": "Zgjidhni llojin (1-2): ",
+        "type_prompt_keep": "Lloji [{current}] (Enter = pa ndryshim): ",
+        "invalid_type": "Zgjedhje e pavlefshme. Vendosni 1 ose 2.",
+        # Fields
+        "field_number": "#",
+        "field_date": "Data",
+        "field_type": "Lloji",
+        "field_description": "Pershkrimi",
+        "field_category": "Kategoria",
+        "field_subcategory": "Nenkategoria",
+        "field_amount": "Shuma",
+        "field_frequency": "Frekuenca",
+        # Adding
+        "adding": "Duke shtuar {type}...",
+        "ask_description": "Vendosni pershkrimin: ",
+        "ask_description_keep": "Pershkrimi [{current}]: ",
+        "empty_description": "Pershkrimi nuk mund te jete i zbrazet.",
+        "ask_amount": "Vendosni shumen: ",
+        "ask_amount_keep": "Shuma [{current}]: ",
+        "invalid_amount": "Shuma eshte e pavlefshme. Ju lutem, vendosni nje numer pozitiv.",
+        "ask_today": "Te perdoret data e tanishme? (po/jo): ",
+        "yes_no_only": "Ju lutem shkruani vetem 'po' ose 'jo'.",
+        "ask_date": "Vendosni daten ( dite-muaj-Vit ): ",
+        "ask_date_keep": "Data [{current}] (Enter = pa ndryshim): ",
+        "invalid_date": "Format i pavlefshem i dates. Ju lutem perdorni formatin dita-muaji-Viti.",
+        "suggested_categories": "Kategorite e sugjeruara:",
+        "own_category_hint": "(Ose shkruani nje kategori tuajen)",
+        "ask_category": "Zgjidhni ose shkruani kategorine: ",
+        "ask_category_keep": "Kategoria [{current}] (Enter = pa ndryshim): ",
+        "invalid_category_number": "Numer i pavlefshem i kategorise.",
+        "suggested_subcategories": "Nenkategorite e sugjeruara:",
+        "own_subcategory_hint": "(Ose shkruani nje nenkategori tuajen)",
+        "skip_subcategory_hint": "(Shtypni Enter per te vazhduar pa nenkategori)",
+        "ask_subcategory": "Zgjidhni ose shkruani nenkategorine: ",
+        "ask_subcategory_keep": "Nenkategoria [{current}] (Enter = pa ndryshim, '-' = fshij): ",
+        "invalid_subcategory_number": "Numer i pavlefshem i nenkategorise.",
+        "no_subcategory": "pa nenkategori",
+        "added": "{type} eshte shtuar me sukses!",
+        # Editing / deleting
+        "ask_number_edit": "Vendosni numrin e transaksionit per ta ndryshuar (ose 'a' per te anuluar): ",
+        "ask_number_delete": "Vendosni numrin e transaksionit per ta fshire (ose 'a' per te anuluar): ",
+        "editing": "Duke ndryshuar transaksionin #{number}",
+        "edited": "Transaksioni u ndryshua me sukses!",
+        "deleted": "U fshi: {date} - {type} - {description} - {category}",
+        # Listing
+        "all_transactions": "Te gjitha transaksionet:",
+        "no_transactions": "Nuk u gjet asnje transaksion.",
+        "transactions_on": "Transaksionet e dates {date}:",
+        "transactions_between": "Transaksionet nga {start} deri {end}:",
+        "transactions_from": "Transaksionet nga {start} e tutje:",
+        "transactions_until": "Transaksionet deri me {end}:",
+        "transactions_matching": "Transaksionet qe permbajne '{term}':",
+        # Summary
+        "summary": "Permbledhja Financiare:",
+        "filter_totals": "Totalet per kete filtrim:",
+        "total_income": "Te Ardhurat Totale: ",
+        "total_expenses": "Shpenzimet Totale: ",
+        "balance": "Gjendja Aktuale: ",
+        "count": "Numri i Transaksioneve: ",
+        "by_category": "{type} sipas kategorise:",
+        # Files
+        "loaded": "Jane lexuar {count} transaksione nga {file}",
+        "saved": "Jane ruajtur {count} transaksione ne {file}",
+        "skipped_rows": "Kujdes: {count} rreshta te demtuar u anashkaluan.",
+        "load_error": "Ka ndodhur nje gabim ne leximin e te dhenave: {error}",
+        "save_error": "Ka ndodhur nje gabim ne ruajtjen e te dhenave: {error}",
+        # Search
+        "ask_search": "Kerkoni ne pershkrim ose kategori: ",
+        # Recurring
+        "recurring_title": "Transaksionet e Perseritura:",
+        "no_recurring": "Nuk ka asnje transaksion te perseritur.",
+        "adding_recurring": "Duke shtuar nje transaksion te perseritur...",
+        "choose_frequency": "Zgjidhni frekuencen (1-{count}): ",
+        "first_date": "Data e pare e ketij transaksioni:",
+        "recurring_added": "Transaksioni i perseritur u shtua me sukses!",
+        "recurring_deleted": "U fshi perseritja: {description}",
+        "ask_number_recurring": "Vendosni numrin e perseritjes per ta fshire (ose 'a' per te anuluar): ",
+        "next_occurrence": "Radha tjeter: {date}",
+        "generated": "U gjeneruan {count} transaksione te perseritura.",
+        "nothing_due": "Nuk ka transaksione te perseritura per te gjeneruar.",
+        "freq_javore": "javore",
+        "freq_mujore": "mujore",
+        "freq_vjetore": "vjetore",
+        # Budgets
+        "budgets_title": "Buxhetet Mujore:",
+        "no_budgets": "Nuk ka asnje buxhet te caktuar.",
+        "ask_budget_amount": "Shuma mujore e buxhetit: ",
+        "budget_saved": "Buxheti per {category} u ruajt.",
+        "budget_deleted": "Buxheti per {category} u fshi.",
+        "ask_number_budget": "Vendosni numrin e buxhetit per ta fshire (ose 'a' per te anuluar): ",
+        "budget_spent": "Shpenzuar",
+        "budget_limit": "Buxheti",
+        "budget_left": "Mbetur",
+        "budget_used": "Perdorur",
+        "budget_over": "KUJDES: Buxheti per {category} eshte tejkaluar me {amount}!",
+        "budget_near": "Kujdes: {percent}% e buxhetit per {category} eshte perdorur.",
+        "budget_no_category": "Kategoria nuk ka buxhet te caktuar.",
+        # Reports
+        "report_title": "Raporti i {month}",
+        "report_this_month": "Ky muaj",
+        "report_last_month": "Muaji i kaluar",
+        "report_change": "Ndryshimi",
+        "report_no_data": "Nuk ka te dhena per kete muaj.",
+        "report_vs_previous": "Krahasuar me muajin e kaluar:",
+        # Menus
+        "menu_add_income": "Shtoni Te Ardhurat",
+        "menu_add_expense": "Shtoni Shpenzimet",
+        "menu_view": "Shiko Te Gjitha Transaksionet",
+        "menu_balance": "Shiko Gjendjen Aktuale",
+        "menu_edit": "Ndrysho nje Transaksion",
+        "menu_delete": "Fshi nje Transaksion",
+        "menu_filter": "Filtro sipas Dates",
+        "menu_search": "Kerko Transaksione",
+        "menu_report": "Raporti Mujor",
+        "menu_budgets": "Buxhetet",
+        "menu_recurring": "Transaksionet e Perseritura",
+        "menu_exit": "Dil nga programi",
+        "filter_menu_title": "Filtro sipas Dates:",
+        "filter_single": "Nje date e caktuar",
+        "filter_range": "Midis dy datave",
+        "filter_start": "Data e fillimit ( dite-muaj-Vit ) ose 'a' per te anuluar: ",
+        "filter_end": "Data e mbarimit ( dite-muaj-Vit ) ose 'a' per te anuluar: ",
+        "filter_date": "Vendosni daten ( dite-muaj-Vit ) ose 'a' per te anuluar: ",
+        "end_before_start": "Data e mbarimit nuk mund te jete para dates se fillimit.",
+        "recurring_menu_view": "Shiko Perseritjet",
+        "recurring_menu_add": "Shto nje Perseritje",
+        "recurring_menu_delete": "Fshi nje Perseritje",
+        "recurring_menu_generate": "Gjenero Perseritjet e Radhes",
+        "budget_menu_view": "Shiko Buxhetet",
+        "budget_menu_set": "Cakto nje Buxhet",
+        "budget_menu_delete": "Fshi nje Buxhet",
+        "report_menu_this": "Ky muaj",
+        "report_menu_last": "Muaji i kaluar",
+        "report_menu_choose": "Zgjidh nje muaj",
+        "ask_month": "Vendosni muajin ( muaj-Vit ): ",
+        "invalid_month": "Format i pavlefshem. Ju lutem perdorni formatin muaji-Viti.",
+    },
+    "en": {
+        "welcome": "Welcome to the Personal Income and Expense Manager!",
+        "goodbye": "Thank you for using the Personal Income and Expense Manager. Goodbye!",
+        "cancelled": "Cancelled.",
+        "menu": "Menu:",
+        "choose": "Enter your choice ({range}): ",
+        "invalid_choice": "Invalid choice. Please enter a number between {low} and {high}.",
+        "invalid_number": "Invalid number.",
+        "back": "Back to the main menu",
+        "press_enter_keep": "Press Enter to leave a field unchanged.",
+        "type_income": "Income",
+        "type_expense": "Expenses",
+        "choose_type": "Choose the type (1-2): ",
+        "type_prompt_keep": "Type [{current}] (Enter = unchanged): ",
+        "invalid_type": "Invalid choice. Enter 1 or 2.",
+        "field_number": "#",
+        "field_date": "Date",
+        "field_type": "Type",
+        "field_description": "Description",
+        "field_category": "Category",
+        "field_subcategory": "Subcategory",
+        "field_amount": "Amount",
+        "field_frequency": "Frequency",
+        "adding": "Adding {type}...",
+        "ask_description": "Enter the description: ",
+        "ask_description_keep": "Description [{current}]: ",
+        "empty_description": "The description cannot be empty.",
+        "ask_amount": "Enter the amount: ",
+        "ask_amount_keep": "Amount [{current}]: ",
+        "invalid_amount": "Invalid amount. Please enter a positive number.",
+        "ask_today": "Use today's date? (yes/no): ",
+        "yes_no_only": "Please type only 'yes' or 'no'.",
+        "ask_date": "Enter the date ( day-month-Year ): ",
+        "ask_date_keep": "Date [{current}] (Enter = unchanged): ",
+        "invalid_date": "Invalid date format. Please use day-month-Year.",
+        "suggested_categories": "Suggested categories:",
+        "own_category_hint": "(Or type a category of your own)",
+        "ask_category": "Choose or type the category: ",
+        "ask_category_keep": "Category [{current}] (Enter = unchanged): ",
+        "invalid_category_number": "Invalid category number.",
+        "suggested_subcategories": "Suggested subcategories:",
+        "own_subcategory_hint": "(Or type a subcategory of your own)",
+        "skip_subcategory_hint": "(Press Enter to continue without a subcategory)",
+        "ask_subcategory": "Choose or type the subcategory: ",
+        "ask_subcategory_keep": "Subcategory [{current}] (Enter = unchanged, '-' = clear): ",
+        "invalid_subcategory_number": "Invalid subcategory number.",
+        "no_subcategory": "no subcategory",
+        "added": "{type} added successfully!",
+        "ask_number_edit": "Enter the number of the transaction to edit (or 'a' to cancel): ",
+        "ask_number_delete": "Enter the number of the transaction to delete (or 'a' to cancel): ",
+        "editing": "Editing transaction #{number}",
+        "edited": "Transaction updated successfully!",
+        "deleted": "Deleted: {date} - {type} - {description} - {category}",
+        "all_transactions": "All transactions:",
+        "no_transactions": "No transactions found.",
+        "transactions_on": "Transactions on {date}:",
+        "transactions_between": "Transactions from {start} to {end}:",
+        "transactions_from": "Transactions from {start} onwards:",
+        "transactions_until": "Transactions up to {end}:",
+        "transactions_matching": "Transactions matching '{term}':",
+        "summary": "Financial Summary:",
+        "filter_totals": "Totals for this filter:",
+        "total_income": "Total Income: ",
+        "total_expenses": "Total Expenses: ",
+        "balance": "Current Balance: ",
+        "count": "Number of Transactions: ",
+        "by_category": "{type} by category:",
+        "loaded": "Loaded {count} transactions from {file}",
+        "saved": "Saved {count} transactions to {file}",
+        "skipped_rows": "Warning: {count} corrupted rows were skipped.",
+        "load_error": "An error occurred while reading the data: {error}",
+        "save_error": "An error occurred while saving the data: {error}",
+        "ask_search": "Search in description or category: ",
+        "recurring_title": "Recurring transactions:",
+        "no_recurring": "There are no recurring transactions.",
+        "adding_recurring": "Adding a recurring transaction...",
+        "choose_frequency": "Choose the frequency (1-{count}): ",
+        "first_date": "First date of this transaction:",
+        "recurring_added": "Recurring transaction added successfully!",
+        "recurring_deleted": "Deleted recurring rule: {description}",
+        "ask_number_recurring": "Enter the number of the recurring rule to delete (or 'a' to cancel): ",
+        "next_occurrence": "Next occurrence: {date}",
+        "generated": "Generated {count} recurring transactions.",
+        "nothing_due": "There are no recurring transactions due.",
+        "freq_javore": "weekly",
+        "freq_mujore": "monthly",
+        "freq_vjetore": "yearly",
+        "budgets_title": "Monthly budgets:",
+        "no_budgets": "No budgets have been set.",
+        "ask_budget_amount": "Monthly budget amount: ",
+        "budget_saved": "Budget for {category} saved.",
+        "budget_deleted": "Budget for {category} deleted.",
+        "ask_number_budget": "Enter the number of the budget to delete (or 'a' to cancel): ",
+        "budget_spent": "Spent",
+        "budget_limit": "Budget",
+        "budget_left": "Left",
+        "budget_used": "Used",
+        "budget_over": "WARNING: the budget for {category} is over by {amount}!",
+        "budget_near": "Careful: {percent}% of the {category} budget has been used.",
+        "budget_no_category": "This category has no budget set.",
+        "report_title": "Report for {month}",
+        "report_this_month": "This month",
+        "report_last_month": "Last month",
+        "report_change": "Change",
+        "report_no_data": "There is no data for this month.",
+        "report_vs_previous": "Compared with last month:",
+        "menu_add_income": "Add Income",
+        "menu_add_expense": "Add an Expense",
+        "menu_view": "View All Transactions",
+        "menu_balance": "View Current Balance",
+        "menu_edit": "Edit a Transaction",
+        "menu_delete": "Delete a Transaction",
+        "menu_filter": "Filter by Date",
+        "menu_search": "Search Transactions",
+        "menu_report": "Monthly Report",
+        "menu_budgets": "Budgets",
+        "menu_recurring": "Recurring Transactions",
+        "menu_exit": "Exit",
+        "filter_menu_title": "Filter by Date:",
+        "filter_single": "A specific date",
+        "filter_range": "Between two dates",
+        "filter_start": "Start date ( day-month-Year ) or 'a' to cancel: ",
+        "filter_end": "End date ( day-month-Year ) or 'a' to cancel: ",
+        "filter_date": "Enter the date ( day-month-Year ) or 'a' to cancel: ",
+        "end_before_start": "The end date cannot be before the start date.",
+        "recurring_menu_view": "View Recurring Rules",
+        "recurring_menu_add": "Add a Recurring Rule",
+        "recurring_menu_delete": "Delete a Recurring Rule",
+        "recurring_menu_generate": "Generate Due Occurrences",
+        "budget_menu_view": "View Budgets",
+        "budget_menu_set": "Set a Budget",
+        "budget_menu_delete": "Delete a Budget",
+        "report_menu_this": "This month",
+        "report_menu_last": "Last month",
+        "report_menu_choose": "Choose a month",
+        "ask_month": "Enter the month ( month-Year ): ",
+        "invalid_month": "Invalid format. Please use month-Year.",
+    },
+}
+
+# Words accepted as "yes" at the today/date prompt, per language.
+AFFIRMATIVE = {"sq": ("po",), "en": ("yes", "y")}
+NEGATIVE = {"sq": ("jo",), "en": ("no", "n")}
+
+_language = DEFAULT_LANGUAGE
+
+
+def set_language(language):
+    """Switch the active language. Unknown codes fall back to the default."""
+    global _language
+    _language = language if language in MESSAGES else DEFAULT_LANGUAGE
+    return _language
+
+
+def get_language():
+    """Return the active language code."""
+    return _language
+
+
+def t(key, **kwargs):
+    """Translate a message key, falling back to Albanian then to the key itself.
+
+    Formatting placeholders are filled from kwargs. A missing placeholder
+    returns the unformatted text rather than raising, so a bad translation can
+    never crash the program mid-session.
+    """
+    text = MESSAGES.get(_language, {}).get(key)
+    if text is None:
+        text = MESSAGES[DEFAULT_LANGUAGE].get(key, key)
+    if not kwargs:
+        return text
+    try:
+        return text.format(**kwargs)
+    except (KeyError, IndexError):
+        return text
+
+
+def type_label(trans_type):
+    """Display label for a stored transaction type.
+
+    Stored values stay Albanian; only the label shown on screen changes, so
+    switching language never rewrites data.
+    """
+    if trans_type == INCOME:
+        return t("type_income")
+    if trans_type == EXPENSE:
+        return t("type_expense")
+    return trans_type
+
+
+def frequency_label(frequency):
+    """Display label for a recurrence frequency."""
+    return t(f"freq_{frequency}")
+
+
+def affirmatives():
+    """Words that count as 'yes' in the active language."""
+    return AFFIRMATIVE.get(_language, AFFIRMATIVE[DEFAULT_LANGUAGE])
+
+
+def negatives():
+    """Words that count as 'no' in the active language."""
+    return NEGATIVE.get(_language, NEGATIVE[DEFAULT_LANGUAGE])

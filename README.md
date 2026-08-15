@@ -1,34 +1,52 @@
 # Personal Finance Manager
 
-A command-line app for tracking personal income and expenses, with transactions saved to local CSV files. The interface is in Albanian.
+[![CI](https://github.com/PetritDemiri/personal-income-expense-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/REPO/actions/workflows/ci.yml)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+A command-line personal income and expense manager, with an Albanian interface and an English option. No runtime dependencies — standard library only.
+
+<!-- Record with `vhs demo.tape` and commit the result, then uncomment: -->
+<!-- ![Demo](demo.gif) -->
 
 ## Features
 
-- Add income and expense transactions with description, amount, date, and category
-- Categorize every transaction — pick from suggested categories or type your own
-- Edit any transaction in place, field by field
-- Delete a transaction by its number
-- View totals broken down per category
-- Filter transactions by a single date or an inclusive date range, with totals for the filtered set
-- Recurring transactions (weekly, monthly, yearly) generated automatically when they come due
-- Color-coded output — income in green, expenses in red — with automatic fallback for terminals that don't support it
-- Command-line flags for scripting, with the interactive menu as the default
-- Amounts use `Decimal` for accurate totals (no floating-point rounding drift)
+- **Transactions** — add, edit in place, and delete income and expense entries
+- **Categories and subcategories** — pick from suggestions or type your own; anything you've used before is suggested automatically, with the catch-all always listed last
+- **Budgets** — monthly spending limits per category, with a warning at the moment you overspend
+- **Monthly reports** — totals, per-category breakdown, and month-over-month comparison
+- **Date filtering** — a single date or an inclusive range, with totals for the filtered set
+- **Search** — match on description or category
+- **Recurring transactions** — weekly, monthly, or yearly, generated automatically when due
+- **Colored output** — income green, expenses red, with automatic fallback for terminals that don't support it
+- **Two languages** — Albanian by default, English via `--gjuha en`; stored data is identical either way
+- **Command-line flags** — Albanian primary, English aliases, with the interactive menu as the default
+- **Exact money** — `Decimal` throughout, so totals never drift from floating-point rounding
+- **Crash-safe saves** — atomic writes mean an interrupted save can't corrupt or truncate your data
 
-## Requirements
-
-- Python 3.6+
-- No external dependencies — standard library only
-
-## Getting started
-
-Clone the repository, then run:
+## Install
 
 ```bash
+git clone https://github.com/PetritDemiri/personal-income-expense-manager.git
+cd REPO
+pip install -e .
+```
+
+This provides a `financat` command. To run without installing:
+
+```bash
+python3 -m personal_finance
+# or, unchanged from earlier versions:
 python3 personal_finance_manager.py
 ```
 
-## Interactive menu
+## Usage
+
+Running with no flags opens the interactive menu:
+
+```bash
+financat
+```
 
 | Option | Albanian | English |
 |---|---|---|
@@ -39,92 +57,147 @@ python3 personal_finance_manager.py
 | 5 | Ndrysho nje Transaksion | Edit a transaction |
 | 6 | Fshi nje Transaksion | Delete a transaction |
 | 7 | Filtro sipas Dates | Filter by date |
-| 8 | Transaksionet e Perseritura | Manage recurring transactions |
-| 9 | Dil nga programi | Exit |
+| 8 | Kerko Transaksione | Search transactions |
+| 9 | Raporti Mujor | Monthly report |
+| 10 | Buxhetet | Budgets |
+| 11 | Transaksionet e Perseritura | Recurring transactions |
+| 12 | Dil nga programi | Exit |
 
-Enter a number 1-9 and follow the prompts. Dates default to today, or you can enter a custom date in `dd-mm-yyyy` format.
+Dates use `dd-mm-yyyy`. When editing, each prompt shows the current value in brackets — press Enter to keep it.
 
-### Editing
+### Command-line flags
 
-When editing, each prompt shows the current value in brackets. Press Enter to keep it and move on, so a single field can be corrected without retyping the rest. Input is validated exactly as it is when adding a transaction.
-
-### Categories
-
-Adding a transaction offers a numbered list of suggested categories for that type — `Paga`, `Bonus`, `Dhurate` and so on for income; `Ushqim`, `Qera`, `Transport` and so on for expenses. Pick a number, or type any category you like. Categories already used in your data are added to the suggestions automatically. Transactions with no category are shown as `Pa kategori`.
-
-### Date filtering
-
-Option 7 filters by a single date or between two dates (both bounds inclusive). Either way, the matching transactions are shown along with their own income, expense, and balance totals. Numbers in a filtered view still refer to positions in the full list, so they can be used directly to edit or delete.
-
-### Recurring transactions
-
-Recurring rules are stored separately in `recurring.csv` and support `javore` (weekly), `mujore` (monthly), and `vjetore` (yearly) frequencies. Due occurrences are generated automatically when the program starts, or on demand from menu option 8 or the `--perserit` flag.
-
-Each rule records the last date it generated, so an occurrence is never created twice no matter how often the program runs. Every occurrence is calculated from the rule's start date rather than from the previous occurrence, so a rule anchored on the 31st fires on 31 January, 28 February, then 31 March again — a short month never shifts the schedule permanently.
-
-## Command-line flags
-
-Running with no flags opens the interactive menu. Albanian flags are primary; English aliases are accepted for all of them.
+Albanian flags are primary; English aliases work for all of them.
 
 | Flag | Alias | Description |
 |---|---|---|
 | `--ndihma` | `-h`, `--help` | Show help and exit |
 | `--lista` | `--list` | List transactions (optionally filtered) |
 | `--gjendja` | `--balance` | Show the financial summary |
+| `--raporti` | `--report` | Monthly report |
+| `--buxhetet` | `--budgets` | Show budgets |
+| `--cakto-buxhet` | `--set-budget` | Set a monthly budget: `KATEGORIA SHUMA` |
 | `--shto-te-ardhura` | `--add-income` | Add an income transaction |
 | `--shto-shpenzime` | `--add-expense` | Add an expense transaction |
 | `--perserit` | `--recurring` | Generate any due recurring transactions |
+| `--perseritjet` | `--list-recurring` | List recurring rules |
+| `--kerko` | `--search` | Search descriptions and categories |
 | `--pershkrimi` | `--description` | Description for a new transaction |
 | `--shuma` | `--amount` | Amount for a new transaction |
 | `--data` | `--date` | Date (`dd-mm-yyyy`) |
 | `--kategoria` | `--category` | Category for a new transaction |
+| `--nenkategoria` | `--subcategory` | Subcategory for a new transaction (optional) |
 | `--nga` | `--from` | Filter start date (inclusive) |
 | `--deri` | `--to` | Filter end date (inclusive) |
+| `--muaji` | `--month` | Month for the report (`mm-yyyy`) |
+| `--gjuha` | `--language` | Interface language: `sq` (default) or `en` |
 | `--pa-ngjyra` | `--no-color` | Disable colored output |
 
-`--data` works by context: with `--lista` it filters to a single date, and with `--shto-te-ardhura` or `--shto-shpenzime` it sets the date of the new transaction.
-
-Any field left out when adding a transaction is prompted for interactively, so flags can be used to fill in as much or as little as you like.
-
-### Examples
+`--data` works by context: with `--lista` it filters to a single date; with `--shto-*` it sets the new transaction's date. Any field omitted when adding is prompted for interactively.
 
 ```bash
-# List everything
-python3 personal_finance_manager.py --lista
-
-# List one day, and a range
-python3 personal_finance_manager.py --lista --data 05-08-2026
-python3 personal_finance_manager.py --lista --nga 01-08-2026 --deri 31-08-2026
-
-# Add an expense without entering the menu
-python3 personal_finance_manager.py --shto-shpenzime --pershkrimi "Qera" --shuma 300 --kategoria Qera
-
-# Show the balance with no colors
-python3 personal_finance_manager.py --gjendja --pa-ngjyra
+financat --lista --nga 01-08-2026 --deri 31-08-2026
+financat --shto-shpenzime --pershkrimi "Qera" --shuma 300 --kategoria Qera
+financat --shto-shpenzime --pershkrimi "Buke" --shuma 1.20 --kategoria Ushqim --nenkategoria Dyqan
+financat --cakto-buxhet Ushqim 200
+financat --raporti --muaji 07-2026
+financat --kerko dyqani
+financat --gjuha en --balance
 ```
 
-## Colors
+## How it works
 
-Output is color-coded for readability: income in green, expenses in red, headers in cyan, and warnings in yellow. Colors are disabled automatically when output is piped or redirected to a file, when the `NO_COLOR` environment variable is set, or when the terminal reports no color support. They can also be turned off explicitly with `--pa-ngjyra`.
+### Categories and subcategories
+
+Every transaction has a category; a subcategory is optional. Suggestions come from a built-in list plus anything you've used before, and the catch-all (`Te tjera`) is always kept at the end of the list no matter how many categories you add of your own.
+
+Subcategories appear as a table column only when something actually uses them, so the listing stays narrow if you don't need them. Summaries and reports nest subcategory totals under their category, and search matches on subcategories too.
+
+When adding, press Enter at the subcategory prompt to skip it. When editing, Enter keeps the current value and a lone `-` clears it. Changing a transaction's category asks for the subcategory fresh, since the old one no longer applies.
+
+### Budgets
+
+A budget is a monthly limit for one expense category, and it covers every subcategory beneath it — a `Ushqim` budget counts `Dyqan` and `Restorant` spending together. Adding an expense that pushes a category to 80% of its limit prints a warning; going over prints how far over. The budget view shows spent, limit, remaining, and a usage bar, worst first.
+
+### Recurring transactions
+
+Rules live in `recurring.csv` and support `javore` (weekly), `mujore` (monthly), and `vjetore` (yearly). Due occurrences generate automatically at start-up, or on demand via the menu or `--perserit`.
+
+Each rule records the last date it generated, so an occurrence is never created twice. Every occurrence is computed from the rule's start date rather than from the previous one — so a rule anchored on the 31st fires 31 January, 28 February, then **31** March. A short month never shifts the schedule permanently.
+
+### Colors
+
+Income is green, expenses red, headers cyan, warnings yellow. Colors switch off automatically when output is piped or redirected, when `NO_COLOR` is set, or when the terminal reports no support — and can be disabled explicitly with `--pa-ngjyra`.
+
+## Project layout
+
+```
+personal_finance/
+    config.py      Settings and canonical values
+    i18n.py        Message catalogs (sq, en)
+    dates.py       Parsing, formatting, month arithmetic
+    models.py      Transaction, RecurringRule, Budget
+    storage.py     Storage interface + atomic CSV backend
+    recurring.py   Recurrence scheduling
+    reports.py     Totals, filtering, monthly reports
+    budgets.py     Budget status calculations
+    colors.py      ANSI handling and terminal detection
+    display.py     Table and summary rendering
+    app.py         Service layer tying it together
+    ui.py          Interactive prompts and menus
+    cli.py         argparse entry point
+tests/             pytest suite
+```
+
+Two design points worth knowing:
+
+**Storage is an interface.** Everything above `storage.py` talks to a `Storage` object and never touches a file. Swapping CSV for SQLite means writing one class — the UI, reports, and CLI don't change.
+
+**Display is separate from data.** Stored transaction types stay Albanian regardless of interface language; only labels are translated. Switching language never rewrites your data.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+
+pytest                                              # run the tests
+pytest --cov=personal_finance --cov-report=term-missing
+ruff check . && ruff format --check .               # lint and format
+```
+
+Tests and lint run on every push via GitHub Actions, across Linux, macOS, and Windows.
+
+### Recording the demo GIF
+
+```bash
+vhs demo.tape    # requires https://github.com/charmbracelet/vhs
+```
+
+The tape runs against a temporary data directory, so your real data never appears in the recording. Commit the resulting `demo.gif` and uncomment the image line near the top of this file.
 
 ## Data storage
 
-Two CSV files are created in the working directory:
+Three CSV files are created in the working directory (override with `FINANCE_DATA_DIR`):
 
-**`transactions.csv`** — one row per transaction, with columns `lloji` (type), `pershkrimi` (description), `shuma` (amount), `data` (date), and `kategoria` (category).
+| File | Columns |
+|---|---|
+| `transactions.csv` | `lloji`, `pershkrimi`, `shuma`, `data`, `kategoria`, `nenkategoria` |
+| `recurring.csv` | `lloji`, `pershkrimi`, `shuma`, `kategoria`, `nenkategoria`, `frekuenca`, `data_fillimit`, `data_e_fundit` |
+| `budgets.csv` | `kategoria`, `shuma` |
 
-**`recurring.csv`** — one row per recurring rule, with columns `lloji`, `pershkrimi`, `shuma`, `kategoria`, `frekuenca` (frequency), `data_fillimit` (start date), and `data_e_fundit` (last generated date).
-
-Both files are created automatically on first use and are excluded from version control (see `.gitignore`), since they hold personal financial data.
-
-Corrupted rows are skipped individually with a warning rather than discarding the rest of the file.
+All three are gitignored — they hold personal financial data. Corrupted rows are skipped individually with a warning rather than discarding the rest of the file.
 
 ### Migration from earlier versions
 
-The `kategoria` column was added as the fifth column of `transactions.csv`, so files written by earlier versions load without any manual conversion — existing rows are read normally and shown as `Pa kategori`. The file is rewritten in the new format the next time it is saved.
+Existing data loads with no manual conversion:
 
-`recurring.csv` is new and is created on demand; nothing breaks if it doesn't exist.
+- **Four-column files** (before categories) load fine and are shown as `Pa kategori`.
+- **Files without `nenkategoria`** (before subcategories) load fine with no subcategory set.
+- **English type values** (`income` / `expense`) are translated to `Te Ardhura` / `Shpenzime` on load, as are lowercase Albanian variants.
+- **`budgets.csv`** is new and created on demand; nothing breaks if it doesn't exist.
+
+Files are rewritten in the current format the next time they're saved.
 
 ## License
 
-Licensed under the MIT License — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).
