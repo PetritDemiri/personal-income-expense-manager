@@ -12,7 +12,7 @@ from .colors import RED, YELLOW, paint
 from .config import DEFAULT_CATEGORY, SUGGESTED_CATEGORIES, SUGGESTED_SUBCATEGORIES
 from .dates import today
 from .i18n import t
-from .models import Transaction
+from .models import Account, Transaction
 from .recurring import FREQUENCIES, generate_due
 from .reports import known_categories, known_subcategories, sort_by_date
 from .storage import CsvStorage
@@ -27,6 +27,7 @@ class FinanceApp:
         self.transactions = []
         self.recurring_rules = []
         self.budgets = []
+        self.accounts = []
 
     # -- loading and saving ------------------------------------------------
 
@@ -64,6 +65,15 @@ class FinanceApp:
             print(paint(t("load_error", error=error), RED))
             self.budgets = []
 
+        try:
+            result = self.storage.load_accounts()
+            self.accounts = list(result.records)
+            if result.skipped:
+                self._notice(paint(t("skipped_rows", count=result.skipped), YELLOW))
+        except Exception as error:
+            print(paint(t("load_error", error=error), RED))
+            self.accounts = []
+
     def save_transactions(self, announce=True):
         try:
             self.storage.save_transactions(self.transactions)
@@ -82,6 +92,14 @@ class FinanceApp:
             print(paint(t("save_error", error=error), RED))
             return False
 
+    def save_accounts(self, announce=False):
+        try:
+            self.storage.save_accounts(self.accounts)
+            return True
+        except Exception as error:
+            print(paint(t("save_error", error=error), RED))
+            return False
+
     def save_budgets(self, announce=False):
         try:
             self.storage.save_budgets(self.budgets)
@@ -93,7 +111,15 @@ class FinanceApp:
     # -- transactions ------------------------------------------------------
 
     def add_transaction(
-        self, trans_type, description, amount, date, category=None, subcategory=None
+        self,
+        trans_type,
+        description,
+        amount,
+        date,
+        category=None,
+        subcategory=None,
+        account=None,
+        destination=None,
     ):
         """Create, store and save a transaction. Returns the new object."""
         transaction = Transaction(
@@ -103,6 +129,8 @@ class FinanceApp:
             data=date,
             kategoria=category or DEFAULT_CATEGORY,
             nenkategoria=(subcategory or "").strip(),
+            llogaria=(account or "").strip(),
+            llogaria_dest=(destination or "").strip(),
         )
         self.transactions.append(transaction)
         self.save_transactions()
@@ -165,6 +193,86 @@ class FinanceApp:
         return removed
 
     # -- budgets -----------------------------------------------------------
+
+    # -- accounts ----------------------------------------------------------
+
+    def has_accounts(self):
+        """Whether any account is defined.
+
+        Everything account-related is skipped when this is False, so a user who
+        never creates one sees the program exactly as it was.
+        """
+        return bool(self.accounts)
+
+    def add_account(self, name, account_type, opening):
+        account = Account(emri=name, lloji=account_type, gjendja_fillestare=opening)
+        self.accounts.append(account)
+        self.save_accounts()
+        return account
+
+    def update_account(self, index, name=None, account_type=None, opening=None):
+        """Change an account, repointing every reference if it was renamed."""
+        from .accounts import rename_account
+
+        account = self.accounts[index]
+        renamed = name is not None and name != account.emri
+
+        if renamed:
+            rename_account(
+                self.accounts,
+                self.transactions,
+                self.recurring_rules,
+                account.emri,
+                name,
+            )
+        if account_type is not None:
+            account.lloji = account_type
+        if opening is not None:
+            account.gjendja_fillestare = opening
+
+        if renamed:
+            # The rename touched transactions and rules too, so all three must
+            # land together or a transaction is left pointing at a name that
+            # no longer exists.
+            try:
+                self.storage.save_account_change(
+                    self.accounts, self.transactions, self.recurring_rules
+                )
+            except Exception as error:
+                print(paint(t("save_error", error=error), RED))
+        else:
+            self.save_accounts()
+        return account
+
+    def delete_account(self, index):
+        """Delete an account, leaving its transactions behind as unassigned."""
+        from .accounts import unassign_account
+
+        removed = self.accounts.pop(index)
+        touched = unassign_account(self.transactions, self.recurring_rules, removed.emri)
+        try:
+            self.storage.save_account_change(self.accounts, self.transactions, self.recurring_rules)
+        except Exception as error:
+            print(paint(t("save_error", error=error), RED))
+        return removed, touched
+
+    def assign_unassigned_to(self, name):
+        """Move every account-less transaction and rule onto one account.
+
+        Saved as a single change, since it rewrites transactions and rules
+        together with the account list.
+        """
+        from .accounts import assign_unassigned
+
+        assigned, skipped = assign_unassigned(self.transactions, self.recurring_rules, name)
+        if assigned:
+            try:
+                self.storage.save_account_change(
+                    self.accounts, self.transactions, self.recurring_rules
+                )
+            except Exception as error:
+                print(paint(t("save_error", error=error), RED))
+        return assigned, skipped
 
     def set_budget(self, category, amount):
         from .budgets import set_budget

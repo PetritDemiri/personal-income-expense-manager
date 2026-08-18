@@ -4,14 +4,19 @@ Everything that reads from stdin lives here. The prompt helpers are shared
 between adding and editing so both paths validate input identically.
 """
 
+from decimal import Decimal, InvalidOperation
+
+from .accounts import balances_for, find_account
 from .budgets import all_statuses, check_after_adding
-from .colors import BOLD, CYAN, DIM, RED, paint
+from .colors import BOLD, CYAN, DIM, RED, YELLOW, paint
 from .config import (
+    ACCOUNT_TYPES,
     CLEAR_MARKER,
     DEFAULT_CATEGORY,
     EXPENSE,
     INCOME,
     SUGGESTED_SUBCATEGORIES,
+    TRANSFER,
 )
 from .dates import (
     current_date_str,
@@ -24,6 +29,7 @@ from .dates import (
 )
 from .display import (
     category_path,
+    print_accounts,
     print_budget_warning,
     print_budgets,
     print_monthly_report,
@@ -182,6 +188,82 @@ def prompt_type(current=None):
         print(paint(t("invalid_type"), RED))
 
 
+def prompt_account(app, current=None, message_key="ask_account", allow_skip=True):
+    """Ask which account a transaction belongs to.
+
+    Returns "" for no account. Never called when no accounts exist, so a user
+    who does not use them is never asked.
+    """
+    names = [a.emri for a in app.accounts]
+    print(f"\n{t('accounts_title')}")
+    for i, name in enumerate(names, start=1):
+        print(f"  {i}. {name}")
+    if allow_skip and current is None:
+        print(paint(f"  {t('skip_account_hint')}", DIM))
+
+    while True:
+        if current is None:
+            raw = input(t(message_key)).strip()
+            if not raw and allow_skip:
+                return ""
+        else:
+            raw = input(t("ask_account_keep", current=current or "-")).strip()
+            if not raw:
+                return current
+            if raw == CLEAR_MARKER and allow_skip:
+                return ""
+
+        if raw.isdigit():
+            index = int(raw)
+            if 1 <= index <= len(names):
+                return names[index - 1]
+            print(paint(t("invalid_account_number"), RED))
+            continue
+
+        matched = find_account(app.accounts, raw)
+        if matched is not None:
+            return matched.emri
+        print(paint(t("invalid_account_number"), RED))
+
+
+def prompt_account_type(current=None):
+    """Ask whether an account is cash, a bank account, or a card."""
+    print(f"\n{t('field_type')}:")
+    for i, name in enumerate(ACCOUNT_TYPES, start=1):
+        print(f"  {i}. {name}")
+    while True:
+        raw = input(t("ask_account_type", count=len(ACCOUNT_TYPES))).strip()
+        if not raw and current is not None:
+            return current
+        if raw.isdigit() and 1 <= int(raw) <= len(ACCOUNT_TYPES):
+            return ACCOUNT_TYPES[int(raw) - 1]
+        print(paint(t("invalid_type"), RED))
+
+
+def prompt_opening_balance(current=None):
+    """Ask for an opening balance.
+
+    Unlike a transaction amount this may be negative - a credit card usually
+    starts out owing money - so it is not validated with parse_amount.
+    """
+    while True:
+        if current is None:
+            raw = input(t("ask_opening")).strip()
+            if not raw:
+                return Decimal("0.00")
+        else:
+            raw = input(t("ask_opening_keep", current=f"{current:.2f}")).strip()
+            if not raw:
+                return current
+        try:
+            value = Decimal(raw)
+            if not value.is_finite():
+                raise InvalidOperation
+            return value
+        except InvalidOperation:
+            print(paint(t("invalid_opening"), RED))
+
+
 def prompt_index(count, message):
     """Ask for a 1-based number within range. Returns a 0-based index or None."""
     raw = input(message).strip().lower()
@@ -221,6 +303,8 @@ def show_transactions(app):
 
 def show_balance(app):
     print_summary(app.transactions, calculate_totals(app.transactions))
+    if app.has_accounts():
+        print_accounts(balances_for(app.accounts, app.transactions))
 
 
 def add_transaction(app, trans_type):
@@ -259,16 +343,18 @@ def edit_transaction(app):
     # meaningless, so it is asked for fresh.
     current_sub = transaction.nenkategoria if new_category == transaction.kategoria else None
     new_subcategory = prompt_subcategory(app, new_type, new_category, current=current_sub)
+    changes = {
+        "lloji": new_type,
+        "pershkrimi": new_description,
+        "shuma": new_amount,
+        "data": new_date,
+        "kategoria": new_category,
+        "nenkategoria": new_subcategory,
+    }
+    if app.has_accounts():
+        changes["llogaria"] = prompt_account(app, current=transaction.llogaria or None)
 
-    app.update_transaction(
-        index,
-        lloji=new_type,
-        pershkrimi=new_description,
-        shuma=new_amount,
-        data=new_date,
-        kategoria=new_category,
-        nenkategoria=new_subcategory,
-    )
+    app.update_transaction(index, **changes)
     print(paint(t("edited"), BOLD))
 
 
@@ -388,6 +474,172 @@ def report_menu(app):
         return
     else:
         print(paint(t("invalid_choice", low=1, high=4), RED))
+
+
+# ---------------------------------------------------------------------------
+# Accounts
+# ---------------------------------------------------------------------------
+
+
+def show_accounts(app):
+    print_accounts(balances_for(app.accounts, app.transactions))
+
+
+def add_account(app):
+    print(paint(f"\n{t('adding_account')}", BOLD))
+    while True:
+        name = input(t("ask_account_name")).strip()
+        if not name:
+            print(paint(t("empty_description"), RED))
+            continue
+        if find_account(app.accounts, name) is not None:
+            print(paint(t("account_exists"), RED))
+            continue
+        break
+
+    account_type = prompt_account_type()
+    opening = prompt_opening_balance()
+
+    app.add_account(name, account_type, opening)
+    print(paint(t("account_added", name=name), BOLD))
+
+
+def edit_account(app):
+    show_accounts(app)
+    if not app.accounts:
+        # The list above may still show an unassigned row, so returning in
+        # silence here looked like the menu was ignoring the choice.
+        print(paint(t("no_accounts_to_change"), YELLOW))
+        return
+    index = prompt_index(len(app.accounts), t("ask_number_account"))
+    if index is None:
+        return
+
+    account = app.accounts[index]
+    print(paint(t("press_enter_keep"), DIM))
+
+    while True:
+        name = input(t("ask_account_name_keep", current=account.emri)).strip()
+        if not name:
+            name = account.emri
+            break
+        existing = find_account(app.accounts, name)
+        if existing is not None and existing is not account:
+            print(paint(t("account_exists"), RED))
+            continue
+        break
+
+    account_type = prompt_account_type(current=account.lloji)
+    opening = prompt_opening_balance(current=account.gjendja_fillestare)
+
+    app.update_account(index, name=name, account_type=account_type, opening=opening)
+    print(paint(t("account_updated"), BOLD))
+
+
+def delete_account(app):
+    show_accounts(app)
+    if not app.accounts:
+        print(paint(t("no_accounts_to_delete"), YELLOW))
+        return
+    index = prompt_index(len(app.accounts), t("ask_number_account"))
+    if index is None:
+        return
+    removed, touched = app.delete_account(index)
+    print(paint(t("account_deleted", name=removed.emri, count=touched), YELLOW))
+
+
+def add_transfer(app):
+    """Record a movement between two of the user's own accounts."""
+    if len(app.accounts) < 2:
+        print(paint(t("transfer_needs_two"), YELLOW))
+        return
+
+    print(paint(f"\n{t('adding_transfer')}", BOLD))
+    source = prompt_account(app, allow_skip=False)
+    if not source:
+        return
+
+    while True:
+        destination = prompt_account(app, message_key="ask_destination", allow_skip=False)
+        if not destination:
+            return
+        if destination == source:
+            print(paint(t("same_account"), RED))
+            continue
+        break
+
+    description = prompt_description()
+    amount = prompt_amount()
+    date = prompt_date()
+
+    app.add_transaction(
+        TRANSFER,
+        description,
+        amount,
+        date,
+        category=DEFAULT_CATEGORY,
+        subcategory="",
+        account=source,
+        destination=destination,
+    )
+    print(paint(t("transfer_added"), BOLD))
+
+
+def assign_unassigned_transactions(app):
+    """Move every account-less transaction onto a chosen account."""
+    from .accounts import count_unassigned
+
+    if not app.accounts:
+        print(paint(t("no_accounts_to_change"), YELLOW))
+        return
+
+    pending = count_unassigned(app.transactions, app.recurring_rules)
+    if not pending:
+        print(paint(t("nothing_unassigned"), YELLOW))
+        return
+
+    target = prompt_account(app, allow_skip=False)
+    if not target:
+        return
+
+    # Confirmed first: this rewrites every account-less record at once, and
+    # there is no undo.
+    answer = input(t("assign_confirm", count=pending, name=target)).strip().lower()
+    if answer not in affirmatives():
+        print(t("cancelled"))
+        return
+
+    assigned, skipped = app.assign_unassigned_to(target)
+    print(paint(t("assigned", count=assigned, name=target), BOLD))
+    if skipped:
+        print(paint(t("assign_skipped", count=skipped), YELLOW))
+
+
+def account_menu(app):
+    while True:
+        print(paint(f"\n{t('menu_accounts')}:", BOLD, CYAN))
+        print(f"1. {t('account_menu_view')}")
+        print(f"2. {t('account_menu_add')}")
+        print(f"3. {t('account_menu_edit')}")
+        print(f"4. {t('account_menu_delete')}")
+        print(f"5. {t('account_menu_assign')}")
+        print(f"6. {t('back')}")
+
+        choice = prompt_menu_choice(1, 6)
+        if choice == "1":
+            show_accounts(app)
+        elif choice == "2":
+            add_account(app)
+        elif choice == "3":
+            edit_account(app)
+        elif choice == "4":
+            delete_account(app)
+        elif choice == "5":
+            assign_unassigned_transactions(app)
+        elif choice == "6":
+            return
+        else:
+            print(paint(t("invalid_choice", low=1, high=6), RED))
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +807,8 @@ MENU_ITEMS = [
     ("menu_search", search_transactions),
     ("menu_report", report_menu),
     ("menu_budgets", budget_menu),
+    ("menu_accounts", account_menu),
+    ("menu_transfer", add_transfer),
     ("menu_recurring", recurring_menu),
     ("menu_exit", None),
 ]

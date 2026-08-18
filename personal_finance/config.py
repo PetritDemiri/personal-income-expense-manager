@@ -20,8 +20,15 @@ import os
 # is what allows an English interface without touching stored data.
 INCOME = "Te Ardhura"
 EXPENSE = "Shpenzime"
+# A movement between two of the user's own accounts. Neither income nor an
+# expense: the money never leaves, so it must never reach either total.
+TRANSFER = "Transferim"
 
-TRANSACTION_TYPES = (INCOME, EXPENSE)
+TRANSACTION_TYPES = (INCOME, EXPENSE, TRANSFER)
+
+# The two types a user picks between when adding an ordinary transaction.
+# Transfers are created through their own flow, which needs two accounts.
+ENTRY_TYPES = (INCOME, EXPENSE)
 
 # Values written by much older versions of the program, mapped onto the
 # canonical ones when a file is loaded.
@@ -30,6 +37,8 @@ LEGACY_TYPE_ALIASES = {
     "expense": EXPENSE,
     "te ardhura": INCOME,
     "shpenzime": EXPENSE,
+    "transfer": TRANSFER,
+    "transferim": TRANSFER,
 }
 
 # ---------------------------------------------------------------------------
@@ -44,6 +53,7 @@ DATABASE_FILE = "finance.db"
 TRANSACTIONS_FILE = "transactions.csv"
 RECURRING_FILE = "recurring.csv"
 BUDGETS_FILE = "budgets.csv"
+ACCOUNTS_FILE = "accounts.csv"
 
 
 def data_path(filename):
@@ -113,6 +123,21 @@ SUGGESTED_SUBCATEGORIES = {
     "Shendetesi": ["Mjek", "Barnatore", "Dentist", OTHER_CATEGORY],
     "Veshje": ["Rroba", "Kepuce", "Aksesore", OTHER_CATEGORY],
 }
+
+# ---------------------------------------------------------------------------
+# Accounts
+# ---------------------------------------------------------------------------
+# Accounts are optional. With none defined the program behaves exactly as it
+# did before: no account prompt, no account column, one combined balance.
+CASH = "Kesh"
+BANK = "Banke"
+CARD = "Karte"
+
+ACCOUNT_TYPES = (CASH, BANK, CARD)
+
+# Shown in place of the account name for transactions recorded before any
+# account existed, or deliberately left unassigned.
+NO_ACCOUNT_DISPLAY = "-"
 
 # Fraction of a budget at which a warning is shown before it is exceeded.
 BUDGET_WARNING_THRESHOLD = 0.8

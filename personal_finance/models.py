@@ -13,11 +13,13 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
 from .config import (
+    CASH,
     DEFAULT_CATEGORY,
     EXPENSE,
     INCOME,
     LEGACY_TYPE_ALIASES,
     TRANSACTION_TYPES,
+    TRANSFER,
 )
 from .dates import parse_date
 
@@ -72,8 +74,23 @@ class Transaction:
     # Optional: the empty string means the transaction sits directly in its
     # category with no subcategory.
     nenkategoria: str = ""
+    # Optional: the empty string means the transaction is not tied to any
+    # account, which is what every transaction recorded before accounts
+    # existed looks like.
+    llogaria: str = ""
+    # Only meaningful on a transfer: the account the money arrives in.
+    llogaria_dest: str = ""
 
-    FIELDNAMES = ["lloji", "pershkrimi", "shuma", "data", "kategoria", "nenkategoria"]
+    FIELDNAMES = [
+        "lloji",
+        "pershkrimi",
+        "shuma",
+        "data",
+        "kategoria",
+        "nenkategoria",
+        "llogaria",
+        "llogaria_dest",
+    ]
 
     @property
     def is_income(self):
@@ -82,6 +99,10 @@ class Transaction:
     @property
     def is_expense(self):
         return self.lloji == EXPENSE
+
+    @property
+    def is_transfer(self):
+        return self.lloji == TRANSFER
 
     @property
     def date(self):
@@ -112,6 +133,12 @@ class Transaction:
 
         # Rows written before subcategories existed have no such column.
         subcategory = (row.get("nenkategoria") or "").strip()
+        # Likewise for accounts.
+        account = (row.get("llogaria") or "").strip()
+        destination = (row.get("llogaria_dest") or "").strip()
+
+        if trans_type == TRANSFER and not destination:
+            raise ValueError("transferimi pa llogari destinacioni")
 
         return cls(
             lloji=trans_type,
@@ -120,6 +147,8 @@ class Transaction:
             data=date_str,
             kategoria=category,
             nenkategoria=subcategory,
+            llogaria=account,
+            llogaria_dest=destination,
         )
 
     def to_row(self):
@@ -131,6 +160,8 @@ class Transaction:
             "data": self.data,
             "kategoria": self.kategoria,
             "nenkategoria": self.nenkategoria,
+            "llogaria": self.llogaria,
+            "llogaria_dest": self.llogaria_dest,
         }
 
 
@@ -143,6 +174,7 @@ class RecurringRule:
     shuma: Decimal
     kategoria: str = DEFAULT_CATEGORY
     nenkategoria: str = ""
+    llogaria: str = ""
     frekuenca: str = "mujore"
     data_fillimit: str = ""
     # Empty means nothing has been generated yet, so the first occurrence due
@@ -155,6 +187,7 @@ class RecurringRule:
         "shuma",
         "kategoria",
         "nenkategoria",
+        "llogaria",
         "frekuenca",
         "data_fillimit",
         "data_e_fundit",
@@ -203,6 +236,7 @@ class RecurringRule:
             shuma=amount,
             kategoria=(row.get("kategoria") or "").strip() or DEFAULT_CATEGORY,
             nenkategoria=(row.get("nenkategoria") or "").strip(),
+            llogaria=(row.get("llogaria") or "").strip(),
             frekuenca=frequency,
             data_fillimit=start,
             data_e_fundit=last,
@@ -215,6 +249,7 @@ class RecurringRule:
             "shuma": f"{self.shuma:.2f}",
             "kategoria": self.kategoria,
             "nenkategoria": self.nenkategoria,
+            "llogaria": self.llogaria,
             "frekuenca": self.frekuenca,
             "data_fillimit": self.data_fillimit,
             "data_e_fundit": self.data_e_fundit,
@@ -231,7 +266,55 @@ class RecurringRule:
             data=format_date(date_obj),
             kategoria=self.kategoria,
             nenkategoria=self.nenkategoria,
+            llogaria=self.llogaria,
         )
+
+
+@dataclass
+class Account:
+    """A place money sits: cash, a bank account, a card.
+
+    The opening balance is what was already there when tracking started.
+    Without it, an account that held 500 euros on day one would report a
+    balance of zero until enough income was recorded to make up the
+    difference.
+    """
+
+    emri: str
+    lloji: str = CASH
+    gjendja_fillestare: Decimal = field(default_factory=lambda: Decimal("0.00"))
+
+    FIELDNAMES = ["emri", "lloji", "gjendja_fillestare"]
+
+    @classmethod
+    def from_row(cls, row):
+        name = (row.get("emri") or "").strip()
+        if not name:
+            raise ValueError("emer i zbrazet")
+
+        account_type = (row.get("lloji") or "").strip() or CASH
+
+        # An opening balance may legitimately be negative - a credit card
+        # usually starts owing money - so it is not run through parse_amount.
+        # A missing column is zero, not the string "None" - which is what
+        # str(row.get(...)) quietly produces when the key is absent.
+        raw = row.get("gjendja_fillestare")
+        text = "" if raw is None else str(raw).strip()
+        try:
+            opening = Decimal(text) if text else Decimal("0.00")
+        except (InvalidOperation, AttributeError, TypeError):
+            raise ValueError("gjendje fillestare e pavlefshme") from None
+        if not opening.is_finite():
+            raise ValueError("gjendje fillestare e pavlefshme")
+
+        return cls(emri=name, lloji=account_type, gjendja_fillestare=opening)
+
+    def to_row(self):
+        return {
+            "emri": self.emri,
+            "lloji": self.lloji,
+            "gjendja_fillestare": f"{self.gjendja_fillestare:.2f}",
+        }
 
 
 @dataclass

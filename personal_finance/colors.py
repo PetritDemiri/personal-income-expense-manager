@@ -9,7 +9,7 @@ characters, and would otherwise break every table column.
 import os
 import sys
 
-from .config import EXPENSE, INCOME
+from .config import EXPENSE, INCOME, TRANSFER
 
 GREEN = "\033[32m"
 RED = "\033[31m"
@@ -68,11 +68,17 @@ def paint(text, *styles):
 
 
 def type_color(trans_type):
-    """Green for income, red for expenses."""
+    """Green for income, red for expenses, cyan for transfers.
+
+    A transfer must not be green or red: it is neither money gained nor money
+    lost, and colouring it either way would misread at a glance.
+    """
     if trans_type == INCOME:
         return GREEN
     if trans_type == EXPENSE:
         return RED
+    if trans_type == TRANSFER:
+        return CYAN
     return ""
 
 

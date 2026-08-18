@@ -7,13 +7,16 @@ With no flags at all, the interactive menu runs.
 import argparse
 import os
 import sys
+from decimal import Decimal, InvalidOperation
 
 from . import colors
+from .accounts import balances_for, filter_by_account, find_account
 from .app import FinanceApp
 from .budgets import all_statuses, check_after_adding
-from .colors import BOLD, DIM, RED, paint
-from .config import DEFAULT_CATEGORY, EXPENSE, INCOME
+from .colors import BOLD, DIM, RED, YELLOW, paint
+from .config import ACCOUNT_TYPES, DEFAULT_CATEGORY, EXPENSE, INCOME, TRANSFER
 from .dates import (
+    current_date_str,
     format_date,
     month_of,
     parse_date,
@@ -21,6 +24,7 @@ from .dates import (
     today,
 )
 from .display import (
+    print_accounts,
     print_budget_warning,
     print_budgets,
     print_monthly_report,
@@ -38,6 +42,39 @@ from .reports import (
     sort_by_date,
 )
 from .ui import numbered, run_menu
+
+# Every flag that performs an action. Any of these means flag mode rather than
+# the interactive menu. Kept in one place because it was previously spelled out
+# inline in main() and drifted twice: a new action flag was added without being
+# listed here, so start-up notices leaked into scripted output. There is a test
+# asserting this matches the parser's action group exactly.
+ACTION_FLAGS = (
+    "lista",
+    "gjendja",
+    "raporti",
+    "buxhetet",
+    "cakto_buxhet",
+    "shto_te_ardhura",
+    "shto_shpenzime",
+    "perserit",
+    "perseritjet",
+    "kerko",
+    "llogarite",
+    "shto_llogari",
+    "cakto_pa_llogari",
+    "transfero",
+)
+
+
+def action_flag_dests(parser):
+    """The dest names in the parser's action group.
+
+    Used by the test that keeps ACTION_FLAGS honest.
+    """
+    for group in parser._action_groups:
+        if group.title and group.title.startswith("veprimet"):
+            return tuple(action.dest for action in group._group_actions)
+    return ()
 
 
 def build_parser():
@@ -116,6 +153,38 @@ def build_parser():
     actions.add_argument(
         "--kerko", "--search", metavar="TERMI", help="Kerko ne pershkrim ose kategori / search"
     )
+    actions.add_argument(
+        "--llogarite",
+        "--accounts",
+        action="store_true",
+        help="Shfaq gjendjen e secilës llogari / show per-account balances",
+    )
+    actions.add_argument(
+        "--shto-llogari",
+        "--add-account",
+        dest="shto_llogari",
+        nargs=3,
+        metavar=("EMRI", "LLOJI", "GJENDJA"),
+        help="Shto nje llogari: emri, lloji (Kesh/Banke/Karte), gjendja fillestare "
+        "/ add an account",
+    )
+    actions.add_argument(
+        "--cakto-pa-llogari",
+        "--assign-unassigned",
+        dest="cakto_pa_llogari",
+        metavar="EMRI",
+        help="Cakto te gjitha transaksionet pa llogari te kjo llogari "
+        "/ assign every account-less transaction to this account",
+    )
+    actions.add_argument(
+        "--transfero",
+        "--transfer",
+        dest="transfero",
+        nargs=2,
+        metavar=("NGA", "TEK"),
+        help="Transfero mes dy llogarive; kombinoje me --shuma, --pershkrimi, "
+        "--data / transfer between accounts",
+    )
 
     fields = parser.add_argument_group("fushat dhe filtrat / fields and filters")
     fields.add_argument(
@@ -134,6 +203,11 @@ def build_parser():
         "--nenkategoria",
         "--subcategory",
         help="Nenkategoria e transaksionit te ri / subcategory (optional)",
+    )
+    fields.add_argument(
+        "--llogaria",
+        "--account",
+        help="Llogaria e transaksionit te ri, ose filtro sipas llogarise / account",
     )
     fields.add_argument(
         "--nga", "--from", dest="nga", help="Data e fillimit e filtrit / filter start (inclusive)"
@@ -217,6 +291,7 @@ def resolve_filter_dates(args):
 def do_add(app, args, trans_type):
     """Add a transaction from flags, prompting for anything not supplied."""
     from .ui import (
+        prompt_account,
         prompt_amount,
         prompt_category,
         prompt_date,
@@ -262,7 +337,23 @@ def do_add(app, args, trans_type):
     else:
         subcategory = prompt_subcategory(app, trans_type, category)
 
-    transaction = app.add_transaction(trans_type, description, amount, date, category, subcategory)
+    if args.llogaria is not None:
+        requested = args.llogaria.strip()
+        matched = find_account(app.accounts, requested)
+        if requested and matched is None:
+            print(paint(t("unknown_account", name=requested), RED))
+            return False
+        # Normalised to the stored spelling, so "banka" and "Banka" do not
+        # become two accounts.
+        account = matched.emri if matched else ""
+    elif app.has_accounts():
+        account = prompt_account(app)
+    else:
+        account = ""
+
+    transaction = app.add_transaction(
+        trans_type, description, amount, date, category, subcategory, account
+    )
     print(paint(t("added", type=type_label(trans_type)), BOLD))
     print_budget_warning(check_after_adding(app.budgets, app.transactions, transaction))
     return True
@@ -276,6 +367,107 @@ def do_set_budget(app, args):
         return
     app.set_budget(category.strip(), amount)
     print(paint(t("budget_saved", category=category.strip()), BOLD))
+
+
+def do_add_account(app, args):
+    """Create an account from flags."""
+    name, account_type, opening_raw = args.shto_llogari
+    name = name.strip()
+
+    if not name:
+        print(paint(t("empty_description"), RED))
+        return
+    if find_account(app.accounts, name) is not None:
+        print(paint(t("account_exists"), RED))
+        return
+
+    # Matched case-insensitively so "banke" works, then stored in the
+    # canonical spelling.
+    matched_type = next(
+        (x for x in ACCOUNT_TYPES if x.casefold() == account_type.strip().casefold()),
+        None,
+    )
+    if matched_type is None:
+        print(paint(t("invalid_account_type", types=", ".join(ACCOUNT_TYPES)), RED))
+        return
+
+    # An opening balance may be negative, so parse_amount is not used here.
+    try:
+        opening = Decimal(opening_raw.strip())
+        if not opening.is_finite():
+            raise InvalidOperation
+    except (InvalidOperation, AttributeError):
+        print(paint(t("invalid_opening"), RED))
+        return
+
+    app.add_account(name, matched_type, opening)
+    print(paint(t("account_added", name=name), BOLD))
+
+
+def do_assign_unassigned(app, args):
+    """Assign every account-less transaction and rule to a named account."""
+    from .accounts import count_unassigned
+
+    target = find_account(app.accounts, args.cakto_pa_llogari)
+    if target is None:
+        print(paint(t("unknown_account", name=args.cakto_pa_llogari), RED))
+        return
+
+    if not count_unassigned(app.transactions, app.recurring_rules):
+        print(paint(t("nothing_unassigned"), YELLOW))
+        return
+
+    assigned, skipped = app.assign_unassigned_to(target.emri)
+    print(paint(t("assigned", count=assigned, name=target.emri), BOLD))
+    if skipped:
+        print(paint(t("assign_skipped", count=skipped), YELLOW))
+
+
+def do_transfer(app, args):
+    """Record a transfer between two accounts from flags."""
+    source_raw, dest_raw = args.transfero
+
+    source = find_account(app.accounts, source_raw)
+    destination = find_account(app.accounts, dest_raw)
+    if source is None:
+        print(paint(t("unknown_account", name=source_raw), RED))
+        return
+    if destination is None:
+        print(paint(t("unknown_account", name=dest_raw), RED))
+        return
+    if source.emri == destination.emri:
+        print(paint(t("same_account"), RED))
+        return
+
+    if args.shuma is None:
+        print(paint(t("invalid_amount"), RED))
+        return
+    amount = parse_amount(args.shuma)
+    if amount is None:
+        print(paint(t("invalid_amount"), RED))
+        return
+
+    description = (args.pershkrimi or t("type_transfer")).strip()
+
+    if args.data is not None:
+        if parse_date(args.data) is None:
+            print(paint(t("invalid_date"), RED))
+            return
+        date = args.data.strip()
+    else:
+        date = current_date_str()
+
+    app.add_transaction(
+        TRANSFER,
+        description,
+        amount,
+        date,
+        category=DEFAULT_CATEGORY,
+        subcategory="",
+        account=source.emri,
+        destination=destination.emri,
+    )
+    print(paint(t("transfer_added"), BOLD))
 
 
 def do_report(app, args):
@@ -306,6 +498,18 @@ def run_cli(app, args):
         do_set_budget(app, args)
         did_something = True
 
+    if args.shto_llogari:
+        do_add_account(app, args)
+        did_something = True
+
+    if args.cakto_pa_llogari:
+        do_assign_unassigned(app, args)
+        did_something = True
+
+    if args.transfero:
+        do_transfer(app, args)
+        did_something = True
+
     if args.shto_te_ardhura or args.shto_shpenzime:
         do_add(app, args, INCOME if args.shto_te_ardhura else EXPENSE)
         did_something = True
@@ -323,7 +527,15 @@ def run_cli(app, args):
         start, end, title, ok = resolve_filter_dates(args)
         if not ok:
             return True
-        matches = sort_by_date(filter_by_dates(app.transactions, start, end))
+        matches = filter_by_dates(app.transactions, start, end)
+        if args.llogaria:
+            matched_account = find_account(app.accounts, args.llogaria)
+            if matched_account is None:
+                print(paint(t("unknown_account", name=args.llogaria), RED))
+                return True
+            matches = filter_by_account(matches, matched_account.emri)
+            title = f"{title} [{matched_account.emri}]"
+        matches = sort_by_date(matches)
         print_transactions(numbered(app.transactions, matches), title)
         if matches and (start or end):
             print_summary(matches, calculate_totals(matches), t("filter_totals"))
@@ -331,6 +543,10 @@ def run_cli(app, args):
 
     if args.perseritjet:
         print_recurring(app.recurring_rules, today())
+        did_something = True
+
+    if args.llogarite:
+        print_accounts(balances_for(app.accounts, app.transactions))
         did_something = True
 
     if args.buxhetet:
@@ -401,20 +617,7 @@ def main(argv=None):
 
     # The menu prints its own load notice; flag mode stays quiet unless
     # something goes wrong.
-    interactive = not any(
-        [
-            args.lista,
-            args.gjendja,
-            args.raporti,
-            args.buxhetet,
-            args.cakto_buxhet,
-            args.shto_te_ardhura,
-            args.shto_shpenzime,
-            args.perserit,
-            args.perseritjet,
-            args.kerko,
-        ]
-    )
+    interactive = not any(getattr(args, name, None) for name in ACTION_FLAGS)
 
     storage, migrated = build_storage(args, quiet=not interactive)
     app = FinanceApp(storage=storage, quiet=not interactive)

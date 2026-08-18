@@ -23,6 +23,7 @@ def csv_storage(tmp_path):
         transactions_file=str(tmp_path / "transactions.csv"),
         recurring_file=str(tmp_path / "recurring.csv"),
         budgets_file=str(tmp_path / "budgets.csv"),
+        accounts_file=str(tmp_path / "accounts.csv"),
     )
 
 
@@ -46,6 +47,7 @@ def storage(request, tmp_path):
             transactions_file=str(tmp_path / "transactions.csv"),
             recurring_file=str(tmp_path / "recurring.csv"),
             budgets_file=str(tmp_path / "budgets.csv"),
+            accounts_file=str(tmp_path / "accounts.csv"),
         )
     else:
         store = SqliteStorage(database_file=str(tmp_path / "finance.db"))

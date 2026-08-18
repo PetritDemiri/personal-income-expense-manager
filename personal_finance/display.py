@@ -8,15 +8,38 @@ from decimal import Decimal
 
 from .budgets import NEAR, OVER
 from .colors import BOLD, CYAN, DIM, GREEN, RED, YELLOW, amount_color, paint, type_color
-from .config import CURRENCY_SYMBOL, EXPENSE, INCOME, NO_SUBCATEGORY_DISPLAY
+from .config import (
+    CURRENCY_SYMBOL,
+    EXPENSE,
+    INCOME,
+    NO_ACCOUNT_DISPLAY,
+    NO_SUBCATEGORY_DISPLAY,
+    TRANSFER,
+)
 from .dates import format_month
 from .i18n import frequency_label, t, type_label
 from .recurring import next_occurrence
 from .reports import (
+    ZERO,
     has_subcategories,
     totals_by_category,
     totals_by_subcategory,
 )
+
+
+def account_display(value):
+    """An account name for display, or a dash when there isn't one."""
+    return value or NO_ACCOUNT_DISPLAY
+
+
+def account_cell(transaction):
+    """The account column: 'Kesh' normally, 'Kesh -> Banka' for a transfer."""
+    if transaction.lloji == TRANSFER:
+        return (
+            f"{account_display(transaction.llogaria)} -> "
+            f"{account_display(transaction.llogaria_dest)}"
+        )
+    return account_display(transaction.llogaria)
 
 
 def subcategory_display(value):
@@ -56,12 +79,17 @@ def print_transactions(numbered, title=None):
     show_sub = has_subcategories(x for _, x in numbered)
     subs = {n: subcategory_display(x.nenkategoria) for n, x in numbered}
 
+    # Same rule for accounts: the column appears only once something uses one.
+    show_account = any(x.llogaria or x.llogaria_dest for _, x in numbered)
+    accounts = {n: account_cell(x) for n, x in numbered}
+
     head_num = t("field_number")
     head_date = t("field_date")
     head_type = t("field_type")
     head_desc = t("field_description")
     head_cat = t("field_category")
     head_sub = t("field_subcategory")
+    head_account = t("field_account")
     head_amount = t("field_amount")
 
     w_num = max(len(head_num) + 1, len(str(max(n for n, _ in numbered))) + 1)
@@ -70,12 +98,18 @@ def print_transactions(numbered, title=None):
     w_desc = max([len(head_desc)] + [len(x.pershkrimi) for _, x in numbered])
     w_cat = max([len(head_cat)] + [len(x.kategoria) for _, x in numbered])
     w_sub = max([len(head_sub)] + [len(v) for v in subs.values()]) if show_sub else 0
+    w_account = (
+        max([len(head_account)] + [len(v) for v in accounts.values()]) if show_account else 0
+    )
     w_amount = max([len(head_amount)] + [len(v) for v in amounts.values()])
 
     sub_header = f"{head_sub:<{w_sub}} " if show_sub else ""
+    account_header = f"{head_account:<{w_account}} " if show_account else ""
     total = w_num + w_date + 1 + w_type + 1 + w_desc + 1 + w_cat + 1 + w_amount
     if show_sub:
         total += w_sub + 1
+    if show_account:
+        total += w_account + 1
 
     print(paint(f"\n{title}", BOLD, CYAN))
     print("-" * total)
@@ -83,17 +117,18 @@ def print_transactions(numbered, title=None):
         paint(
             f"{head_num:<{w_num}}{head_date:<{w_date}} {head_type:<{w_type}} "
             f"{head_desc:<{w_desc}} {head_cat:<{w_cat}} "
-            f"{sub_header}{head_amount:>{w_amount}}",
+            f"{sub_header}{account_header}{head_amount:>{w_amount}}",
             BOLD,
         )
     )
     print("-" * total)
     for number, x in numbered:
         sub_cell = f"{subs[number]:<{w_sub}} " if show_sub else ""
+        account_cell_text = f"{accounts[number]:<{w_account}} " if show_account else ""
         line = (
             f"{number:<{w_num}}{x.data:<{w_date}} {labels[number]:<{w_type}} "
             f"{x.pershkrimi:<{w_desc}} {x.kategoria:<{w_cat}} "
-            f"{sub_cell}{amounts[number]:>{w_amount}}"
+            f"{sub_cell}{account_cell_text}{amounts[number]:>{w_amount}}"
         )
         print(paint(line, type_color(x.lloji)))
     print("-" * total)
@@ -321,3 +356,60 @@ def print_recurring(rules, as_of):
 
             print(paint(f"    {t('next_occurrence', date=format_date(upcoming))}", DIM))
     print("-" * total)
+
+
+def print_accounts(balances, show_total=True):
+    """Print every account with its opening balance, movements and balance."""
+    if not balances:
+        print(paint(f"\n{t('no_accounts')}", YELLOW))
+        return
+
+    names = [b.display_name for b in balances]
+    types = [b.account_type for b in balances]
+    openings = [money(b.opening) for b in balances]
+    totals = [money(b.balance) for b in balances]
+
+    head_name = t("field_account")
+    head_type = t("field_type")
+    head_opening = t("field_opening")
+    head_balance = t("account_balance")
+
+    w_name = max([len(head_name)] + [len(v) for v in names])
+    w_type = max([len(head_type)] + [len(v) for v in types])
+    w_opening = max([len(head_opening)] + [len(v) for v in openings])
+    w_balance = max([len(head_balance)] + [len(v) for v in totals])
+    width = 4 + w_name + 2 + w_type + 2 + w_opening + 2 + w_balance
+
+    print(paint(f"\n{t('accounts_title')}", BOLD, CYAN))
+    print("-" * width)
+    print(
+        paint(
+            f"{'#':<4}{head_name:<{w_name}}  {head_type:<{w_type}}  "
+            f"{head_opening:>{w_opening}}  {head_balance:>{w_balance}}",
+            BOLD,
+        )
+    )
+    print("-" * width)
+    # Only real accounts are numbered. The unassigned row is a summary of
+    # transactions that belong to no account - numbering it would make it look
+    # like something that can be chosen, edited or deleted.
+    number = 0
+    for position, item in enumerate(balances):
+        if item.is_unassigned:
+            label = ""
+        else:
+            number += 1
+            label = str(number)
+        line = (
+            f"{label:<4}{item.display_name:<{w_name}}  {item.account_type:<{w_type}}  "
+            f"{openings[position]:>{w_opening}}  {totals[position]:>{w_balance}}"
+        )
+        print(paint(line, amount_color(item.balance)))
+    print("-" * width)
+
+    if any(item.is_unassigned for item in balances):
+        print(paint(f"  {t('unassigned_legend')}", DIM))
+
+    if show_total:
+        combined = sum((b.balance for b in balances), ZERO)
+        print(f"{t('account_total')}{paint(money(combined), BOLD, amount_color(combined))}")

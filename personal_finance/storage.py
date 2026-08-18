@@ -15,12 +15,13 @@ import os
 import tempfile
 
 from .config import (
+    ACCOUNTS_FILE,
     BUDGETS_FILE,
     RECURRING_FILE,
     TRANSACTIONS_FILE,
     data_path,
 )
-from .models import Budget, RecurringRule, Transaction
+from .models import Account, Budget, RecurringRule, Transaction
 
 
 def atomic_write_csv(path, fieldnames, rows):
@@ -140,6 +141,16 @@ class Storage:
     def save_budgets(self, budgets):
         raise NotImplementedError
 
+    def load_accounts(self):
+        raise NotImplementedError
+
+    def save_accounts(self, accounts):
+        raise NotImplementedError
+
+    def save_account_change(self, accounts, transactions, rules):
+        """Save an account edit together with everything it repoints."""
+        raise NotImplementedError
+
 
 class LoadResult:
     """What a load produced: the records, and how many rows were unusable."""
@@ -162,10 +173,17 @@ class CsvStorage(Storage):
     costs the rest of the file.
     """
 
-    def __init__(self, transactions_file=None, recurring_file=None, budgets_file=None):
+    def __init__(
+        self,
+        transactions_file=None,
+        recurring_file=None,
+        budgets_file=None,
+        accounts_file=None,
+    ):
         self.transactions_file = transactions_file or data_path(TRANSACTIONS_FILE)
         self.recurring_file = recurring_file or data_path(RECURRING_FILE)
         self.budgets_file = budgets_file or data_path(BUDGETS_FILE)
+        self.accounts_file = accounts_file or data_path(ACCOUNTS_FILE)
 
     @property
     def location(self):
@@ -234,3 +252,17 @@ class CsvStorage(Storage):
 
     def save_budgets(self, budgets):
         self._write(self.budgets_file, Budget.FIELDNAMES, budgets)
+
+    # -- accounts ----------------------------------------------------------
+
+    def load_accounts(self):
+        return self._read(self.accounts_file, Account.from_row)
+
+    def save_accounts(self, accounts):
+        self._write(self.accounts_file, Account.FIELDNAMES, accounts)
+
+    def save_account_change(self, accounts, transactions, rules):
+        """Three separate file writes - see save_recurring_run on the gap."""
+        self.save_accounts(accounts)
+        self.save_transactions(transactions)
+        self.save_recurring(rules)

@@ -25,13 +25,13 @@ import os
 import sqlite3
 from decimal import Decimal, InvalidOperation
 
-from .config import DATABASE_FILE, DEFAULT_CATEGORY, data_path
+from .config import CASH, DATABASE_FILE, DEFAULT_CATEGORY, data_path
 from .dates import parse_date
-from .models import Budget, RecurringRule, Transaction
+from .models import Account, Budget, RecurringRule, Transaction
 from .storage import LoadResult, Storage
 
 # Bump this and add a matching entry to MIGRATIONS when the schema changes.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 CENTS = Decimal("0.01")
 
@@ -117,9 +117,40 @@ def _migration_1(conn):
     )
 
 
+def _migration_2(conn):
+    """Accounts.
+
+    The columns are added rather than the tables rebuilt, and every existing
+    row simply gets an empty account - which reads as "unassigned" and is
+    exactly right for transactions recorded before accounts existed.
+
+    This is the first use of the migration machinery added with the database
+    itself, and it is what that machinery was for: a schema change is a
+    numbered step, not a rewrite.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE accounts (
+            id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+            emri                      TEXT    NOT NULL UNIQUE,
+            lloji                     TEXT    NOT NULL DEFAULT 'Kesh',
+            gjendja_fillestare_cents  INTEGER NOT NULL DEFAULT 0,
+            rendi                     INTEGER NOT NULL DEFAULT 0
+        );
+
+        ALTER TABLE transactions ADD COLUMN llogaria      TEXT NOT NULL DEFAULT '';
+        ALTER TABLE transactions ADD COLUMN llogaria_dest TEXT NOT NULL DEFAULT '';
+        ALTER TABLE recurring    ADD COLUMN llogaria      TEXT NOT NULL DEFAULT '';
+
+        CREATE INDEX idx_transactions_llogaria ON transactions(llogaria);
+        """
+    )
+
+
 # Keyed by the version each step brings the database up to.
 MIGRATIONS = {
     1: _migration_1,
+    2: _migration_2,
 }
 
 
@@ -194,7 +225,7 @@ class SqliteStorage(Storage):
     def is_empty(self):
         """True when there is nothing stored yet."""
         conn = self.connect()
-        for table in ("transactions", "recurring", "budgets"):
+        for table in ("transactions", "recurring", "budgets", "accounts"):
             if conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone():
                 return False
         return True
@@ -210,6 +241,8 @@ class SqliteStorage(Storage):
             data=from_iso(row["data"]),
             kategoria=row["kategoria"] or DEFAULT_CATEGORY,
             nenkategoria=row["nenkategoria"] or "",
+            llogaria=row["llogaria"] or "",
+            llogaria_dest=row["llogaria_dest"] or "",
         )
 
     @staticmethod
@@ -220,6 +253,7 @@ class SqliteStorage(Storage):
             shuma=from_cents(row["shuma_cents"]),
             kategoria=row["kategoria"] or DEFAULT_CATEGORY,
             nenkategoria=row["nenkategoria"] or "",
+            llogaria=row["llogaria"] or "",
             frekuenca=row["frekuenca"],
             data_fillimit=from_iso(row["data_fillimit"]),
             data_e_fundit=from_iso(row["data_e_fundit"]),
@@ -246,8 +280,9 @@ class SqliteStorage(Storage):
         conn.execute("DELETE FROM transactions")
         conn.executemany(
             "INSERT INTO transactions "
-            "(lloji, pershkrimi, shuma_cents, data, kategoria, nenkategoria) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "(lloji, pershkrimi, shuma_cents, data, kategoria, nenkategoria, "
+            " llogaria, llogaria_dest) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     t.lloji,
@@ -256,6 +291,8 @@ class SqliteStorage(Storage):
                     to_iso(t.data),
                     t.kategoria,
                     t.nenkategoria,
+                    t.llogaria,
+                    t.llogaria_dest,
                 )
                 for t in transactions
             ],
@@ -290,9 +327,9 @@ class SqliteStorage(Storage):
         conn.execute("DELETE FROM recurring")
         conn.executemany(
             "INSERT INTO recurring "
-            "(lloji, pershkrimi, shuma_cents, kategoria, nenkategoria, "
+            "(lloji, pershkrimi, shuma_cents, kategoria, nenkategoria, llogaria, "
             " frekuenca, data_fillimit, data_e_fundit) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     r.lloji,
@@ -300,6 +337,7 @@ class SqliteStorage(Storage):
                     to_cents(r.shuma),
                     r.kategoria,
                     r.nenkategoria,
+                    r.llogaria,
                     r.frekuenca,
                     to_iso(r.data_fillimit),
                     to_iso(r.data_e_fundit) or "",
@@ -352,6 +390,55 @@ class SqliteStorage(Storage):
                 [(b.kategoria, to_cents(b.shuma)) for b in budgets],
             )
 
+    # -- accounts ----------------------------------------------------------
+
+    def load_accounts(self):
+        conn = self.connect()
+        records = []
+        skipped = 0
+        for row in conn.execute("SELECT * FROM accounts ORDER BY rendi, id"):
+            try:
+                records.append(
+                    Account(
+                        emri=row["emri"],
+                        lloji=row["lloji"] or CASH,
+                        gjendja_fillestare=from_cents(row["gjendja_fillestare_cents"]),
+                    )
+                )
+            except (InvalidOperation, TypeError, ValueError, KeyError):
+                skipped += 1
+        return LoadResult(records, skipped)
+
+    @staticmethod
+    def _write_accounts(conn, accounts):
+        conn.execute("DELETE FROM accounts")
+        conn.executemany(
+            "INSERT INTO accounts (emri, lloji, gjendja_fillestare_cents, rendi) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                (a.emri, a.lloji, to_cents(a.gjendja_fillestare), index)
+                for index, a in enumerate(accounts)
+            ],
+        )
+
+    def save_accounts(self, accounts):
+        conn = self.connect()
+        with conn:
+            self._write_accounts(conn, accounts)
+
+    def save_account_change(self, accounts, transactions, rules):
+        """Save an account edit and everything it repoints, in one transaction.
+
+        Renaming or deleting an account rewrites the account rows and every
+        transaction and rule that referenced it. Half of that landing would
+        leave transactions pointing at an account that no longer exists.
+        """
+        conn = self.connect()
+        with conn:
+            self._write_accounts(conn, accounts)
+            self._write_transactions(conn, transactions)
+            self._write_recurring(conn, rules)
+
     # -- import ------------------------------------------------------------
 
     def import_from(self, other):
@@ -363,14 +450,16 @@ class SqliteStorage(Storage):
         transactions = list(other.load_transactions().records)
         rules = list(other.load_recurring().records)
         budgets = list(other.load_budgets().records)
+        accounts = list(other.load_accounts().records)
 
         conn = self.connect()
         with conn:
             self._write_transactions(conn, transactions)
             self._write_recurring(conn, rules)
+            self._write_accounts(conn, accounts)
             conn.execute("DELETE FROM budgets")
             conn.executemany(
                 "INSERT INTO budgets (kategoria, shuma_cents) VALUES (?, ?)",
                 [(b.kategoria, to_cents(b.shuma)) for b in budgets],
             )
-        return len(transactions) + len(rules) + len(budgets)
+        return len(transactions) + len(rules) + len(budgets) + len(accounts)

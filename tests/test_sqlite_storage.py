@@ -266,6 +266,7 @@ class TestImportFromCsv:
             transactions_file=str(tmp_path / "transactions.csv"),
             recurring_file=str(tmp_path / "recurring.csv"),
             budgets_file=str(tmp_path / "budgets.csv"),
+            accounts_file=str(tmp_path / "accounts.csv"),
         )
         csv_store.save_transactions(
             [make_transaction(INCOME, "Paga", "1200.00", "01-06-2026", "Paga")]
@@ -286,6 +287,7 @@ class TestImportFromCsv:
             transactions_file=str(tmp_path / "transactions.csv"),
             recurring_file=str(tmp_path / "recurring.csv"),
             budgets_file=str(tmp_path / "budgets.csv"),
+            accounts_file=str(tmp_path / "accounts.csv"),
         )
         csv_store.save_transactions(
             [make_transaction(EXPENSE, "Qera", "185.40", "01-06-2026", "Qera")]
@@ -301,6 +303,7 @@ class TestImportFromCsv:
             transactions_file=str(tmp_path / "transactions.csv"),
             recurring_file=str(tmp_path / "recurring.csv"),
             budgets_file=str(tmp_path / "budgets.csv"),
+            accounts_file=str(tmp_path / "accounts.csv"),
         )
         transaction = make_transaction(EXPENSE, "Buke", "1.20", "01-06-2026", "Ushqim")
         transaction.nenkategoria = "Dyqan"

@@ -118,11 +118,40 @@ class TestTransaction:
 
 class TestRecurringRule:
     def test_round_trip_through_row(self):
+        # Keyword arguments on purpose: positional ones silently landed in the
+        # wrong fields here, and the round-trip preserved the mistake.
         original = RecurringRule(
-            EXPENSE, "Qera", Decimal("300.00"), "Qera", "mujore", "01-01-2026", "01-03-2026"
+            lloji=EXPENSE,
+            pershkrimi="Qera",
+            shuma=Decimal("300.00"),
+            kategoria="Qera",
+            nenkategoria="Banesa",
+            llogaria="Banka",
+            frekuenca="mujore",
+            data_fillimit="01-01-2026",
+            data_e_fundit="01-03-2026",
         )
         restored = RecurringRule.from_row(original.to_row())
         assert restored == original
+
+    def test_every_field_survives_the_round_trip(self):
+        original = RecurringRule(
+            lloji=EXPENSE,
+            pershkrimi="Qera",
+            shuma=Decimal("300.00"),
+            kategoria="Qera",
+            nenkategoria="Banesa",
+            llogaria="Banka",
+            frekuenca="mujore",
+            data_fillimit="01-01-2026",
+            data_e_fundit="01-03-2026",
+        )
+        restored = RecurringRule.from_row(original.to_row())
+        assert restored.nenkategoria == "Banesa"
+        assert restored.llogaria == "Banka"
+        assert restored.frekuenca == "mujore"
+        assert restored.data_fillimit == "01-01-2026"
+        assert restored.data_e_fundit == "01-03-2026"
 
     def test_unknown_frequency_rejected_when_validated(self):
         row = {
@@ -150,11 +179,21 @@ class TestRecurringRule:
     def test_to_transaction_uses_the_given_date(self):
         import datetime
 
-        rule = RecurringRule(EXPENSE, "Qera", Decimal("300"), "Qera", "mujore", "01-01-2026")
+        rule = RecurringRule(
+            lloji=EXPENSE,
+            pershkrimi="Qera",
+            shuma=Decimal("300"),
+            kategoria="Qera",
+            llogaria="Banka",
+            frekuenca="mujore",
+            data_fillimit="01-01-2026",
+        )
         transaction = rule.to_transaction(datetime.date(2026, 5, 1))
         assert transaction.data == "01-05-2026"
         assert transaction.shuma == Decimal("300")
         assert transaction.kategoria == "Qera"
+        # The generated transaction lands in the account the rule names.
+        assert transaction.llogaria == "Banka"
 
 
 class TestBudget:

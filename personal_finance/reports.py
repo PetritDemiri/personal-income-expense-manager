@@ -41,13 +41,18 @@ class Totals:
 
 
 def calculate_totals(transactions):
-    """Total income, expenses, balance and count for a list of transactions."""
+    """Total income, expenses, balance and count for a list of transactions.
+
+    Transfers are deliberately counted as neither. Money moved between the
+    user's own accounts has not been earned or spent, and an `else` branch
+    here would quietly file every one of them as an expense.
+    """
     income = ZERO
     expenses = ZERO
     for t in transactions:
         if t.lloji == INCOME:
             income += t.shuma
-        else:
+        elif t.lloji == EXPENSE:
             expenses += t.shuma
     return Totals(income=income, expenses=expenses, count=len(transactions))
 

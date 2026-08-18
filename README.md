@@ -1,6 +1,6 @@
 # Personal Finance Manager
 
-[![CI](https://github.com/PetritDemiri/personal-income-expense-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/PetritDemiri/personal-income-expense-manager/actions/actions/workflows/ci.yml)
+[![CI](https://github.com/PetritDemiri/personal-income-expense-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/PetritDemiri/personal-income-expense-manager/actions/workflows/ci.yml)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -13,6 +13,7 @@ A command-line personal income and expense manager, with an Albanian interface a
 
 - **Transactions** — add, edit in place, and delete income and expense entries
 - **Categories and subcategories** — pick from suggestions or type your own; anything you've used before is suggested automatically, sorted in Albanian alphabetical order (digraphs included) with the catch-all always last
+- **Accounts** — optional cash, bank, and card accounts with opening balances, per-account and combined totals, and transfers between them
 - **Budgets** — monthly spending limits per category, with a warning at the moment you overspend
 - **Monthly reports** — totals, per-category breakdown, and month-over-month comparison
 - **Date filtering** — a single date or an inclusive range, with totals for the filtered set
@@ -77,6 +78,10 @@ Albanian flags are primary; English aliases work for all of them.
 | `--gjendja` | `--balance` | Show the financial summary |
 | `--raporti` | `--report` | Monthly report |
 | `--buxhetet` | `--budgets` | Show budgets |
+| `--llogarite` | `--accounts` | Show per-account balances |
+| `--shto-llogari` | `--add-account` | Add an account: `EMRI LLOJI GJENDJA` |
+| `--transfero` | `--transfer` | Transfer between accounts: `NGA TEK`, with `--shuma` |
+| `--cakto-pa-llogari` | `--assign-unassigned` | Assign account-less records to an account |
 | `--cakto-buxhet` | `--set-budget` | Set a monthly budget: `KATEGORIA SHUMA` |
 | `--shto-te-ardhura` | `--add-income` | Add an income transaction |
 | `--shto-shpenzime` | `--add-expense` | Add an expense transaction |
@@ -87,6 +92,7 @@ Albanian flags are primary; English aliases work for all of them.
 | `--shuma` | `--amount` | Amount for a new transaction |
 | `--data` | `--date` | Date (`dd-mm-yyyy`) |
 | `--kategoria` | `--category` | Category for a new transaction |
+| `--llogaria` | `--account` | Account for a new transaction, or filter by account |
 | `--nenkategoria` | `--subcategory` | Subcategory for a new transaction (optional) |
 | `--nga` | `--from` | Filter start date (inclusive) |
 | `--deri` | `--to` | Filter end date (inclusive) |
@@ -128,6 +134,18 @@ Subcategories appear as a table column only when something actually uses them, s
 
 When adding, press Enter at the subcategory prompt to skip it. When editing, Enter keeps the current value and a lone `-` clears it. Changing a transaction's category asks for the subcategory fresh, since the old one no longer applies.
 
+### Accounts
+
+Accounts are optional and off until you create one. With none defined the program behaves exactly as before: no account prompt, no account column, one combined balance.
+
+An account is somewhere money sits — cash, a bank account, a card — and carries an **opening balance**, because an account that already held €500 when you started tracking does not have a balance of zero. Card accounts can open negative.
+
+Money moved between your own accounts is a **transfer**, not an expense. Recording an ATM withdrawal as an expense would make your combined total drop by money you still have; recording nothing would leave the bank too high and the cash too low. A transfer is a transaction type of its own, shown in cyan rather than green or red, and counted as neither income nor spending. Filtering by either account shows it, since it touches both.
+
+Deleting an account leaves its transactions behind as unassigned — the spending still happened. Renaming one repoints every transaction and recurring rule that referenced it, in a single database transaction.
+
+Transactions recorded before you created any account show up as an unnumbered `-` row: they are real money, just not tied to anywhere. `--cakto-pa-llogari EMRI` moves all of them onto one account in a single step, recurring rules included, so future occurrences land there too. Balances are unaffected — the money was already counted.
+
 ### Budgets
 
 A budget is a monthly limit for one expense category, and it covers every subcategory beneath it — a `Ushqim` budget counts `Dyqan` and `Restorant` spending together. Adding an expense that pushes a category to 80% of its limit prints a warning; going over prints how far over. The budget view shows spent, limit, remaining, and a usage bar, worst first.
@@ -155,6 +173,7 @@ personal_finance/
     reports.py     Totals, filtering, monthly reports
     budgets.py     Budget status calculations
     collation.py   Albanian alphabetical ordering
+    accounts.py    Per-account balances and transfers
     colors.py      ANSI handling and terminal detection
     display.py     Table and summary rendering
     app.py         Service layer tying it together
@@ -205,9 +224,10 @@ Passing `--csv` uses the original three-file layout instead:
 
 | File | Columns |
 |---|---|
-| `transactions.csv` | `lloji`, `pershkrimi`, `shuma`, `data`, `kategoria`, `nenkategoria` |
+| `transactions.csv` | `lloji`, `pershkrimi`, `shuma`, `data`, `kategoria`, `nenkategoria`, `llogaria`, `llogaria_dest` |
 | `recurring.csv` | `lloji`, `pershkrimi`, `shuma`, `kategoria`, `nenkategoria`, `frekuenca`, `data_fillimit`, `data_e_fundit` |
 | `budgets.csv` | `kategoria`, `shuma` |
+| `accounts.csv` | `emri`, `lloji`, `gjendja_fillestare` |
 
 All three are gitignored — they hold personal financial data. Corrupted rows are skipped individually with a warning rather than discarding the rest of the file.
 
@@ -221,6 +241,7 @@ Older CSV files load with no manual conversion:
 - **Files without `nenkategoria`** (before subcategories) load fine with no subcategory set.
 - **English type values** (`income` / `expense`) are translated to `Te Ardhura` / `Shpenzime` on load, as are lowercase Albanian variants.
 - **`budgets.csv`** is new and created on demand; nothing breaks if it doesn't exist.
+- **Databases at schema version 1** are migrated to version 2 automatically on open, adding the accounts table and the account columns. Existing transactions become unassigned, which is what they are.
 
 Files are rewritten in the current format the next time they're saved.
 
