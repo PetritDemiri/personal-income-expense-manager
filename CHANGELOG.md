@@ -1,0 +1,200 @@
+# Changelog
+
+All notable changes to this project are documented here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
+the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+Five versions are recorded below. Four of them were released; 2.0.0 was a
+development phase whose work shipped as part of 2.1.0, and it is documented
+here because it is a distinct stage in the project's history. Commit hashes are
+given so each entry can be traced back to the code.
+
+## [2.3.0] — 2026-08-19
+
+Commit `6696be7`. Accounts and transfers.
+
+### Added
+
+- Accounts: cash, bank, and card, each with an opening balance, since an
+  account that already held money when tracking began does not start at zero.
+  Card accounts may open negative.
+- Transfers between accounts, as a third transaction type. Money moved between
+  your own accounts is neither income nor an expense: recording an ATM
+  withdrawal as spending would drop the combined balance by money still held,
+  and recording nothing would leave one account too high and the other too low.
+- Per-account and combined balances, with an unassigned row for transactions
+  that belong to no account.
+- Bulk assignment of account-less transactions and recurring rules to a chosen
+  account, so records from before accounts existed can be tidied in one step.
+- Accounts submenu, plus `--llogarite`, `--shto-llogari`, `--transfero`,
+  `--cakto-pa-llogari`, and `--llogaria` for setting or filtering by account.
+- Schema migration 2: an accounts table and the account columns. The first use
+  of the migration machinery added in 2.2.0, and a numbered step rather than a
+  rewrite.
+
+### Changed
+
+- Accounts are entirely optional. With none defined there is no account prompt,
+  no account column, and one combined balance, exactly as before.
+- Transfers are shown in cyan rather than green or red, being neither money
+  gained nor money lost.
+- Renaming an account repoints every transaction and recurring rule that
+  referenced it, in one transaction. Deleting one leaves its transactions
+  behind as unassigned; the spending still happened.
+
+### Fixed
+
+- `calculate_totals` fell through an `else` branch, which would have counted
+  every transfer as spending. Now branches explicitly on each type.
+- A missing opening-balance column was read as the string `"None"` rather than
+  as zero.
+- The unassigned row was numbered like a real account, so it looked selectable,
+  and editing or deleting with no accounts defined returned in silence — which
+  read as the menu ignoring the choice.
+- Two command-line errors used menu wording: an unknown account type told the
+  user to press 1 or 2, and an unknown account name was reported as an invalid
+  number.
+- The list of action flags had drifted from the parser twice, letting start-up
+  notices print in scripted output. Now one constant, with a test that keeps it
+  honest.
+- CSV test fixtures defaulted to the working directory for accounts, leaking
+  state between tests.
+
+## [2.2.0] — 2026-08-15
+
+Commit `bb042f3`. SQLite storage and Albanian collation.
+
+### Added
+
+- SQLite backend implementing the existing storage interface, with schema
+  versioning through the `user_version` pragma and migrations that run on open.
+- Automatic one-time import of existing CSV data on first run. The CSV files
+  are left in place, so the move is reversible with `--csv`.
+- Full Albanian collation for category and subcategory suggestions, covering
+  the 36-letter alphabet including its nine digraphs — dh, gj, ll, nj, rr, sh,
+  th, xh, zh — each ranked as a letter in its own right.
+- `--csv` and `--baza` flags for choosing the backend and database path.
+
+### Changed
+
+- Money is stored as integer cents rather than a float, keeping amounts exact.
+- Dates are stored ISO-formatted internally so they sort and index properly,
+  and converted back to `dd-mm-yyyy` for display.
+- Suggestion lists are sorted alphabetically with the catch-all category pinned
+  last, rather than appending newly used categories to the end.
+- Runs of digits compare as numbers, so `Muaji 9` precedes `Muaji 10`.
+
+### Fixed
+
+- Generating recurring transactions wrote the transactions and the updated
+  rules as two separate saves. A crash between them left the transactions on
+  disk while the rules still recorded nothing as generated, so the next run
+  created every occurrence a second time. Both now commit together or neither
+  does.
+- Subcategory amounts in the category breakdown were positioned from each
+  category's own longest name, so they landed left of the category amounts in
+  one section and right of them in the next.
+- Piping output into a command such as `head` printed a traceback instead of
+  exiting quietly.
+- The one-time CSV import announcement was suppressed in flag mode.
+
+## [2.1.0] — 2026-08-15
+
+Commit `78a3fa3`. Subcategories, on top of the 2.0.0 restructure below. Both
+shipped in this single commit.
+
+### Added
+
+- Optional subcategories, shown in listings, summaries, reports, search, and
+  recurring rules. The column appears only once something uses one, so a user
+  who does not need them sees no change.
+- Suggested subcategories per category, learned from what has already been
+  used.
+
+### Changed
+
+- Column widths in the category breakdown are measured across the whole block
+  rather than per category.
+
+### Fixed
+
+- Categories typed by the user were appended after the catch-all category,
+  leaving the suggestion list ending on a specific category rather than on
+  `Te tjera`.
+- The delete confirmation did not name the category or subcategory.
+- Two-word type labels were mangled by `.capitalize()`, turning `Te Ardhura`
+  into `Te ardhura`.
+
+## [2.0.0] — 2026-08-15
+
+Not released separately. This work was completed first and shipped as part of
+2.1.0 in commit `78a3fa3`; the version number was superseded before the first
+push. It is recorded here because the restructure is a distinct phase in the
+project, and the largest single change it has had.
+
+### Added
+
+- Split from a single script into a `personal_finance` package of thirteen
+  modules, with a storage interface that the UI, reports, and CLI never look
+  behind — the seam that made the later SQLite migration a contained change.
+- A pytest suite and GitHub Actions CI running on Linux, macOS, and Windows
+  across three Python versions, plus a ruff lint and format job.
+- Atomic saves: written to a temporary file, flushed, then moved over the
+  original, so an interrupted save cannot truncate the data file.
+- Monthly budgets per category, warning at 80% of the limit and again once
+  exceeded.
+- Monthly reports with a category breakdown and month-over-month comparison.
+- Search across description and category.
+- An English interface via `--gjuha en`. Stored values stay Albanian, so
+  switching language never rewrites data.
+- `pyproject.toml` with a `financat` console entry point.
+
+### Changed
+
+- `personal_finance_manager.py` remains as a shim, so the original command
+  still works.
+- Listings are sorted chronologically, so generated recurring transactions no
+  longer appear in rule order.
+- A corrupted row is skipped individually with a warning instead of discarding
+  the rest of the file.
+
+## [1.0.0] — 2026-08-07
+
+Commit `1db6af5`. The complete single-file application, before the restructure.
+One Python file, one CSV.
+
+### Added
+
+- Categories per transaction, chosen from suggestions or typed freely.
+- Editing a transaction in place, field by field, with Enter keeping the
+  current value.
+- Date filtering for a single day or an inclusive range, with totals for the
+  filtered set.
+- Recurring transactions — weekly, monthly, yearly — generated when due, each
+  occurrence computed from the rule's start date so a short month cannot shift
+  the schedule permanently.
+- ANSI colour output, with automatic fallback where the terminal does not
+  support it.
+- Albanian command-line flags with English aliases, keeping the interactive
+  menu as the default.
+
+### Earlier development
+
+The commits leading to this release, all in the single-file era:
+
+- `eaeea7a` (2026-08-07) — strict `po`/`jo` validation on the date prompt.
+- `c53eb94` (2026-08-07) — `calculate_balance` compared the transaction type
+  against a lowercase string while the stored value was capitalised, so income
+  was never counted and every transaction totalled as an expense.
+- `0cfc988` (2026-08-01) — transaction types localised to Albanian.
+- `9659038` (2026-08-01) — obsolete key-rename compatibility shim removed.
+- `ade6d0a` (2026-08-01) — initial commit.
+
+Two bugs from this period are worth recording, because they are why the test
+suite exists. The balance calculation compared the transaction type against a
+string that was never stored, so income was silently counted as zero; the same
+class of mismatch recurred twice more in different forms, once across languages
+and once across capitalisation. Separately, viewing transactions raised
+`KeyError` from a one-letter difference between the key written and the key
+read.
