@@ -314,8 +314,13 @@ def add_transaction(app, trans_type):
     date = prompt_date()
     category = prompt_category(app.categories_for(trans_type))
     subcategory = prompt_subcategory(app, trans_type, category)
+    # Asked only when accounts exist, so a user who does not use them is never
+    # prompted.
+    account = prompt_account(app) if app.has_accounts() else ""
 
-    transaction = app.add_transaction(trans_type, description, amount, date, category, subcategory)
+    transaction = app.add_transaction(
+        trans_type, description, amount, date, category, subcategory, account
+    )
     print(paint(t("added", type=type_label(trans_type)), BOLD))
     print_budget_warning(check_after_adding(app.budgets, app.transactions, transaction))
 
@@ -716,6 +721,9 @@ def add_recurring(app):
     amount = prompt_amount()
     category = prompt_category(app.categories_for(trans_type))
     subcategory = prompt_subcategory(app, trans_type, category)
+    # A rule without an account would generate unassigned transactions every
+    # month, so it is asked for here too.
+    account = prompt_account(app) if app.has_accounts() else ""
 
     names = list(FREQUENCIES.keys())
     print(f"\n{t('field_frequency')}:")
@@ -738,6 +746,7 @@ def add_recurring(app):
             shuma=amount,
             kategoria=category,
             nenkategoria=subcategory,
+            llogaria=account,
             frekuenca=frequency,
             data_fillimit=start_date,
             data_e_fundit="",

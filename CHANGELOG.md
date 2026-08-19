@@ -5,10 +5,28 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Five versions are recorded below. Four of them were released; 2.0.0 was a
+Six versions are recorded below. Five of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [2.3.1] — 2026-08-19
+
+Patch release. Fixes a bug shipped in 2.3.0.
+
+### Fixed
+
+- The interactive menu never asked which account a new transaction or
+  recurring rule belonged to, so everything added through it was left
+  unassigned even when accounts existed. Both the income and expense options
+  run through the same function, so both were affected. The command-line paths
+  and the editing flow were unaffected, which is why the gap was not obvious.
+
+### Added
+
+- Tests driving the interactive add and recurring flows. The command-line paths
+  were covered and the menu paths were not, which is how an edit that silently
+  failed to apply reached a release.
 
 ## [2.3.0] — 2026-08-19
 

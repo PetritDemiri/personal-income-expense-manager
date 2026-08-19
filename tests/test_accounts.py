@@ -821,3 +821,107 @@ class TestAssignUnassignedCli:
     def test_english_alias(self, capsys):
         main(["--assign-unassigned", "Petrit"])
         assert "U caktuan" in capsys.readouterr().out
+
+
+class TestInteractiveFlowsAskForAnAccount:
+    """Shipped broken in 2.3.0: the menu never asked which account to use.
+
+    The command-line paths were covered, the menu paths were not, so an edit
+    that silently failed to apply went unnoticed until real use.
+    """
+
+    @pytest.fixture(autouse=True)
+    def plain(self):
+        i18n.set_language("sq")
+        colors.configure(force_off=True)
+
+    @pytest.fixture
+    def answers(self, monkeypatch):
+        def feed(*values):
+            queue = list(values)
+
+            def fake_input(_prompt=""):
+                if not queue:
+                    raise AssertionError("prompt asked for more input than expected")
+                return queue.pop(0)
+
+            monkeypatch.setattr("builtins.input", fake_input)
+
+        return feed
+
+    def test_add_asks_for_an_account_when_one_exists(self, app, answers, capsys):
+        from personal_finance.ui import add_transaction
+
+        app.add_account("Petrit", CASH, Decimal("0"))
+        capsys.readouterr()
+
+        # description, amount, today, category, no subcategory, account 1
+        answers("Paga", "50", "po", "1", "", "1")
+        add_transaction(app, INCOME)
+
+        assert app.transactions[-1].llogaria == "Petrit"
+
+    def test_add_does_not_ask_when_no_accounts_exist(self, app, answers, capsys):
+        from personal_finance.ui import add_transaction
+
+        # No account answer supplied: an extra prompt would raise.
+        answers("Paga", "50", "po", "1", "")
+        add_transaction(app, INCOME)
+
+        assert app.transactions[-1].llogaria == ""
+
+    def test_added_transaction_is_not_unassigned(self, app, answers, capsys):
+        from personal_finance.accounts import count_unassigned
+        from personal_finance.ui import add_transaction
+
+        app.add_account("Petrit", CASH, Decimal("0"))
+        capsys.readouterr()
+
+        answers("Paga", "50", "po", "1", "", "1")
+        add_transaction(app, INCOME)
+
+        assert count_unassigned(app.transactions, app.recurring_rules) == 0
+
+    def test_expense_flow_also_asks(self, app, answers, capsys):
+        from personal_finance.ui import add_transaction
+
+        app.add_account("Petrit", CASH, Decimal("0"))
+        capsys.readouterr()
+
+        answers("Qera", "300", "po", "1", "", "1")
+        add_transaction(app, EXPENSE)
+
+        assert app.transactions[-1].llogaria == "Petrit"
+
+    def test_account_can_be_skipped_at_the_prompt(self, app, answers, capsys):
+        from personal_finance.ui import add_transaction
+
+        app.add_account("Petrit", CASH, Decimal("0"))
+        capsys.readouterr()
+
+        answers("Paga", "50", "po", "1", "", "")
+        add_transaction(app, INCOME)
+
+        assert app.transactions[-1].llogaria == ""
+
+    def test_recurring_rule_asks_for_an_account(self, app, answers, capsys):
+        """A rule with no account regenerates unassigned transactions monthly."""
+        from personal_finance.ui import add_recurring
+
+        app.add_account("Petrit", CASH, Decimal("0"))
+        capsys.readouterr()
+
+        # type, description, amount, category, no subcategory, account,
+        # frequency, not today, start date
+        answers("2", "Qera", "300", "1", "", "1", "2", "jo", "01-01-2027")
+        add_recurring(app)
+
+        assert app.recurring_rules[-1].llogaria == "Petrit"
+
+    def test_recurring_rule_does_not_ask_without_accounts(self, app, answers, capsys):
+        from personal_finance.ui import add_recurring
+
+        answers("2", "Qera", "300", "1", "", "2", "jo", "01-01-2027")
+        add_recurring(app)
+
+        assert app.recurring_rules[-1].llogaria == ""
