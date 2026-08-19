@@ -5,10 +5,35 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Seven versions are recorded below. Six of them were released; 2.0.0 was a
+Eight versions are recorded below. Seven of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [2.4.0] — 2026-08-19
+
+### Added
+
+- CSV export via `--eksporto` or the menu, writing the selected transactions to
+  a spreadsheet-ready file. Every listing filter applies, so the flags that
+  narrow a listing narrow an export.
+- `--ndares` for choosing the column delimiter, since locales that use a comma
+  for decimals expect a semicolon and getting it wrong puts the whole row in
+  one cell.
+
+### Notes on the exported file
+
+- Written as UTF-8 with a byte order mark. Without it Excel assumes the system
+  code page and mangles every accented character.
+- Column headers and type labels follow the interface language; stored values
+  are written unchanged.
+- Amounts are plain decimals with no currency symbol, so a spreadsheet reads
+  them as numbers. They stay positive with the type in its own column: a signed
+  column would sum neatly but would misrepresent transfers, which are neither
+  income nor spending.
+- Empty fields are blank cells rather than the placeholder labels shown on
+  screen, including the stored category sentinel.
+- Written atomically, so a failed export cannot replace a good one.
 
 ## [2.3.2] — 2026-08-19
 

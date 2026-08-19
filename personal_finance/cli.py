@@ -63,6 +63,7 @@ ACTION_FLAGS = (
     "shto_llogari",
     "cakto_pa_llogari",
     "transfero",
+    "eksporto",
 )
 
 
@@ -154,6 +155,14 @@ def build_parser():
         "--kerko", "--search", metavar="TERMI", help="Kerko ne pershkrim ose kategori / search"
     )
     actions.add_argument(
+        "--eksporto",
+        "--export",
+        dest="eksporto",
+        metavar="SKEDARI",
+        help="Eksporto transaksionet ne nje skedar CSV; kombinohet me filtrat "
+        "--data, --nga/--deri, --kerko, --llogaria / export to CSV",
+    )
+    actions.add_argument(
         "--llogarite",
         "--accounts",
         action="store_true",
@@ -242,6 +251,14 @@ def build_parser():
         help="Shtegu i bazes se te dhenave / path to the database file",
     )
 
+    output.add_argument(
+        "--ndares",
+        "--delimiter",
+        dest="ndares",
+        default=",",
+        help="Ndaresi i kolonave per eksportim: , ose ; ose | (parazgjedhje: ,) "
+        "/ column delimiter for export",
+    )
     output.add_argument(
         "--pa-ngjyra",
         "--no-color",
@@ -470,6 +487,56 @@ def do_transfer(app, args):
     print(paint(t("transfer_added"), BOLD))
 
 
+def selected_transactions(app, args):
+    """Apply whichever filter flags were given. Returns (rows, ok).
+
+    Shared by --lista and --eksporto so a filter always selects the same set
+    however it is used.
+    """
+    start, end, _title, ok = resolve_filter_dates(args)
+    if not ok:
+        return [], False
+
+    rows = filter_by_dates(app.transactions, start, end)
+
+    if args.kerko:
+        rows = search(rows, args.kerko)
+
+    if args.llogaria:
+        matched = find_account(app.accounts, args.llogaria)
+        if matched is None:
+            print(paint(t("unknown_account", name=args.llogaria), RED))
+            return [], False
+        rows = filter_by_account(rows, matched.emri)
+
+    return sort_by_date(rows), True
+
+
+def do_export(app, args):
+    """Write the selected transactions to a CSV file."""
+    from .export import ALLOWED_DELIMITERS, export_transactions
+
+    delimiter = args.ndares
+    if delimiter not in ALLOWED_DELIMITERS:
+        readable = ", ".join(d if d != "\t" else "tab" for d in ALLOWED_DELIMITERS)
+        print(paint(t("invalid_delimiter", allowed=readable), RED))
+        return
+
+    rows, ok = selected_transactions(app, args)
+    if not ok:
+        return
+    if not rows:
+        print(paint(t("export_empty"), YELLOW))
+        return
+
+    try:
+        count = export_transactions(args.eksporto, rows, delimiter=delimiter)
+    except Exception as error:
+        print(paint(t("export_failed", error=error), RED))
+        return
+    print(paint(t("exported", count=count, path=args.eksporto), BOLD))
+
+
 def do_report(app, args):
     if args.muaji:
         parsed = parse_month(args.muaji)
@@ -514,7 +581,11 @@ def run_cli(app, args):
         do_add(app, args, INCOME if args.shto_te_ardhura else EXPENSE)
         did_something = True
 
-    if args.kerko:
+    if args.eksporto:
+        do_export(app, args)
+        did_something = True
+
+    if args.kerko and not args.eksporto:
         matches = sort_by_date(search(app.transactions, args.kerko))
         print_transactions(
             numbered(app.transactions, matches), t("transactions_matching", term=args.kerko)

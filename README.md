@@ -17,7 +17,8 @@ A command-line personal income and expense manager, with an Albanian interface a
 - **Budgets** — monthly spending limits per category, with a warning at the moment you overspend
 - **Monthly reports** — totals, per-category breakdown, and month-over-month comparison
 - **Date filtering** — a single date or an inclusive range, with totals for the filtered set
-- **Search** — match on description or category
+- **Search** — match on description, category, or subcategory
+- **CSV export** — write transactions to a spreadsheet-ready file, with any filter applied
 - **Recurring transactions** — weekly, monthly, or yearly, generated automatically when due
 - **Colored output** — income green, expenses red, with automatic fallback for terminals that don't support it
 - **Two languages** — Albanian by default, English via `--gjuha en`; stored data is identical either way
@@ -88,6 +89,8 @@ Albanian flags are primary; English aliases work for all of them.
 | `--perserit` | `--recurring` | Generate any due recurring transactions |
 | `--perseritjet` | `--list-recurring` | List recurring rules |
 | `--kerko` | `--search` | Search descriptions and categories |
+| `--eksporto` | `--export` | Export transactions to a CSV file |
+| `--ndares` | `--delimiter` | Column delimiter for export (default `,`) |
 | `--pershkrimi` | `--description` | Description for a new transaction |
 | `--shuma` | `--amount` | Amount for a new transaction |
 | `--data` | `--date` | Date (`dd-mm-yyyy`) |
@@ -155,6 +158,20 @@ A budget is a monthly limit for one expense category, and it covers every subcat
 Rules live in `recurring.csv` and support `javore` (weekly), `mujore` (monthly), and `vjetore` (yearly). Due occurrences generate automatically at start-up, or on demand via the menu or `--perserit`.
 
 Each rule records the last date it generated, so an occurrence is never created twice. Every occurrence is computed from the rule's start date rather than from the previous one — so a rule anchored on the 31st fires 31 January, 28 February, then **31** March. A short month never shifts the schedule permanently.
+
+### CSV export
+
+`--eksporto SKEDARI` writes the selected transactions to a CSV file. Every listing filter applies, so the same flags that narrow a listing narrow an export:
+
+```bash
+financat --eksporto gushti.csv --nga 01-08-2026 --deri 31-08-2026
+financat --eksporto ushqim.csv --kerko Ushqim
+financat --eksporto banka.csv --llogaria Banka
+```
+
+The file is written for a spreadsheet rather than for this program. Column headers follow the interface language; amounts are plain decimals with no currency symbol so they parse as numbers; empty fields are blank cells rather than the labels shown on screen. It is written as UTF-8 with a byte order mark, without which Excel mangles every `ë` and `ç`. Use `--ndares ";"` if your spreadsheet expects semicolons, as locales that use a comma for decimals generally do.
+
+Export is one-directional. It is not a storage backend and never reads.
 
 ### Colors
 

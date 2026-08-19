@@ -446,6 +446,71 @@ def search_transactions(app):
 
 
 # ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+
+def export_to_csv(app):
+    """Ask for a file name and an optional date range, then write the file."""
+    import os
+
+    from .export import export_transactions
+
+    if not app.transactions:
+        print(paint(t("export_empty"), YELLOW))
+        return
+
+    print(paint(f"\n{t('export_title')}", BOLD, CYAN))
+    path = input(t("ask_export_path")).strip()
+    if not path:
+        print(t("cancelled"))
+        return
+
+    # Only asked interactively. On the command line the flag is the intent, and
+    # a prompt would break scripting.
+    if os.path.exists(path):
+        answer = input(t("export_overwrite", path=path)).strip().lower()
+        if answer not in affirmatives():
+            print(t("cancelled"))
+            return
+
+    matches = app.transactions
+    answer = input(t("ask_export_filter")).strip().lower()
+    if answer in affirmatives():
+        while True:
+            raw = input(t("filter_start")).strip()
+            if raw.lower() in CANCEL_KEYS:
+                print(t("cancelled"))
+                return
+            start = parse_date(raw)
+            if start is None:
+                print(paint(t("invalid_date"), RED))
+                continue
+            break
+        while True:
+            raw = input(t("filter_end")).strip()
+            if raw.lower() in CANCEL_KEYS:
+                print(t("cancelled"))
+                return
+            end = parse_date(raw)
+            if end is None:
+                print(paint(t("invalid_date"), RED))
+                continue
+            if end < start:
+                print(paint(t("end_before_start"), RED))
+                continue
+            break
+        matches = filter_by_dates(app.transactions, start, end)
+
+    try:
+        count = export_transactions(path, sort_by_date(matches))
+    except Exception as error:
+        print(paint(t("export_failed", error=error), RED))
+        return
+    print(paint(t("exported", count=count, path=path), BOLD))
+
+
+# ---------------------------------------------------------------------------
 # Reports
 # ---------------------------------------------------------------------------
 
@@ -819,6 +884,7 @@ MENU_ITEMS = [
     ("menu_accounts", account_menu),
     ("menu_transfer", add_transfer),
     ("menu_recurring", recurring_menu),
+    ("menu_export", export_to_csv),
     ("menu_exit", None),
 ]
 
