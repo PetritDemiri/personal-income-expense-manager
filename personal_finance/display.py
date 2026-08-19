@@ -8,14 +8,7 @@ from decimal import Decimal
 
 from .budgets import NEAR, OVER
 from .colors import BOLD, CYAN, DIM, GREEN, RED, YELLOW, amount_color, paint, type_color
-from .config import (
-    CURRENCY_SYMBOL,
-    EXPENSE,
-    INCOME,
-    NO_ACCOUNT_DISPLAY,
-    NO_SUBCATEGORY_DISPLAY,
-    TRANSFER,
-)
+from .config import CURRENCY_SYMBOL, DEFAULT_CATEGORY, EXPENSE, INCOME, TRANSFER
 from .dates import format_month
 from .i18n import frequency_label, t, type_label
 from .recurring import next_occurrence
@@ -27,9 +20,21 @@ from .reports import (
 )
 
 
+def category_display(value):
+    """A category for display.
+
+    The stored placeholder is Albanian text sitting in the database, so it is
+    translated here rather than shown raw - otherwise an English session would
+    read "Pa kategori" beside "No subcategory" in the same row.
+    """
+    if not value or value == DEFAULT_CATEGORY:
+        return t("no_category_display")
+    return value
+
+
 def account_display(value):
-    """An account name for display, or a dash when there isn't one."""
-    return value or NO_ACCOUNT_DISPLAY
+    """An account name for display, or a readable label when there isn't one."""
+    return value or t("no_account_display")
 
 
 def account_cell(transaction):
@@ -43,15 +48,19 @@ def account_cell(transaction):
 
 
 def subcategory_display(value):
-    """A subcategory for display, or a dash when there isn't one."""
-    return value or NO_SUBCATEGORY_DISPLAY
+    """A subcategory for display, or a readable label when there isn't one.
+
+    A bare dash was too easy to read as a formatting artefact rather than as
+    "this field is empty".
+    """
+    return value or t("no_subcategory_display")
 
 
 def category_path(transaction):
     """'Ushqim / Dyqan', or just 'Ushqim' when there is no subcategory."""
     if transaction.nenkategoria:
-        return f"{transaction.kategoria} / {transaction.nenkategoria}"
-    return transaction.kategoria
+        return f"{category_display(transaction.kategoria)} / {transaction.nenkategoria}"
+    return category_display(transaction.kategoria)
 
 
 def money(amount):
@@ -96,7 +105,8 @@ def print_transactions(numbered, title=None):
     w_date = max(len(head_date), 10)
     w_type = max([len(head_type)] + [len(v) for v in labels.values()])
     w_desc = max([len(head_desc)] + [len(x.pershkrimi) for _, x in numbered])
-    w_cat = max([len(head_cat)] + [len(x.kategoria) for _, x in numbered])
+    categories = {n: category_display(x.kategoria) for n, x in numbered}
+    w_cat = max([len(head_cat)] + [len(v) for v in categories.values()])
     w_sub = max([len(head_sub)] + [len(v) for v in subs.values()]) if show_sub else 0
     w_account = (
         max([len(head_account)] + [len(v) for v in accounts.values()]) if show_account else 0
@@ -127,7 +137,7 @@ def print_transactions(numbered, title=None):
         account_cell_text = f"{accounts[number]:<{w_account}} " if show_account else ""
         line = (
             f"{number:<{w_num}}{x.data:<{w_date}} {labels[number]:<{w_type}} "
-            f"{x.pershkrimi:<{w_desc}} {x.kategoria:<{w_cat}} "
+            f"{x.pershkrimi:<{w_desc}} {categories[number]:<{w_cat}} "
             f"{sub_cell}{account_cell_text}{amounts[number]:>{w_amount}}"
         )
         print(paint(line, type_color(x.lloji)))
@@ -165,7 +175,7 @@ def print_category_breakdown(transactions, trans_type):
     # exactly two columns to the right of the category amounts - consistently
     # nested, whatever the names are. Measuring the two groups separately would
     # let a long subcategory name fling its amount far off to the right.
-    labels = [category for category, _, _ in printable]
+    labels = [category_display(category) for category, _, _ in printable]
     labels += [subcategory_display(name) for _, _, subs in printable for name, _ in subs]
     label_width = max(len(label) for label in labels)
 
@@ -176,7 +186,7 @@ def print_category_breakdown(transactions, trans_type):
     print(paint(f"\n  {t('by_category', type=type_label(trans_type))}", type_color(trans_type)))
 
     for category, total, sub_rows in printable:
-        print(f"    {category:<{label_width}}  {money(total):>{amount_width}}")
+        print(f"    {category_display(category):<{label_width}}  {money(total):>{amount_width}}")
         for name, sub_total in sub_rows:
             label = subcategory_display(name)
             print(paint(f"      {label:<{label_width}}  {money(sub_total):>{amount_width}}", DIM))
@@ -364,7 +374,7 @@ def print_accounts(balances, show_total=True):
         print(paint(f"\n{t('no_accounts')}", YELLOW))
         return
 
-    names = [b.display_name for b in balances]
+    names = [account_display(b.name) for b in balances]
     types = [b.account_type for b in balances]
     openings = [money(b.opening) for b in balances]
     totals = [money(b.balance) for b in balances]
@@ -401,7 +411,7 @@ def print_accounts(balances, show_total=True):
             number += 1
             label = str(number)
         line = (
-            f"{label:<4}{item.display_name:<{w_name}}  {item.account_type:<{w_type}}  "
+            f"{label:<4}{account_display(item.name):<{w_name}}  {item.account_type:<{w_type}}  "
             f"{openings[position]:>{w_opening}}  {totals[position]:>{w_balance}}"
         )
         print(paint(line, amount_color(item.balance)))

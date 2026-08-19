@@ -20,7 +20,7 @@ leave the bank too high and the cash too low.
 
 from decimal import Decimal
 
-from .config import EXPENSE, INCOME, NO_ACCOUNT_DISPLAY, TRANSFER
+from .config import EXPENSE, INCOME, TRANSFER
 
 ZERO = Decimal("0.00")
 
@@ -51,12 +51,9 @@ class AccountBalance:
     def is_unassigned(self):
         return self.name == UNASSIGNED
 
-    @property
-    def display_name(self):
-        return NO_ACCOUNT_DISPLAY if self.is_unassigned else self.name
-
     def __repr__(self):
-        return f"AccountBalance({self.display_name!r}, balance={self.balance})"
+        name = self.name or "<pa llogari>"
+        return f"AccountBalance({name!r}, balance={self.balance})"
 
 
 def apply_transaction(balances, transaction):

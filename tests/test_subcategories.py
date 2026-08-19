@@ -284,9 +284,15 @@ class TestSearchIncludesSubcategory:
 
 
 class TestDisplayHelpers:
-    def test_subcategory_display_falls_back_to_a_dash(self):
-        assert subcategory_display("") == "-"
+    def test_subcategory_display_falls_back_to_a_readable_label(self):
+        # A bare dash read as a formatting artefact rather than "empty".
+        assert subcategory_display("") == "Pa nenkategori"
         assert subcategory_display("Dyqan") == "Dyqan"
+
+    def test_subcategory_label_follows_the_interface_language(self):
+        i18n.set_language("en")
+        assert subcategory_display("") == "No subcategory"
+        i18n.set_language("sq")
 
     def test_category_path_with_subcategory(self):
         assert category_path(sub_transaction("Ushqim", "Dyqan")) == "Ushqim / Dyqan"

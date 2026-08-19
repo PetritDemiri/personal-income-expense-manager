@@ -207,7 +207,7 @@ def prompt_account(app, current=None, message_key="ask_account", allow_skip=True
             if not raw and allow_skip:
                 return ""
         else:
-            raw = input(t("ask_account_keep", current=current or "-")).strip()
+            raw = input(t("ask_account_keep", current=current or t("no_account_display"))).strip()
             if not raw:
                 return current
             if raw == CLEAR_MARKER and allow_skip:

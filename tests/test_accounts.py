@@ -177,7 +177,6 @@ class TestUnassignedTransactions:
     def test_unassigned_entry_is_marked_as_such(self):
         balances = balances_for([], [entry(INCOME, "100", "")])
         assert balances[0].is_unassigned
-        assert balances[0].display_name == "-"
 
     def test_no_accounts_at_all_still_totals_correctly(self):
         transactions = [entry(INCOME, "100", ""), entry(EXPENSE, "40", "")]
@@ -405,9 +404,10 @@ def test_account_column_appears_once_an_account_is_used(app, capsys):
 def test_transfer_shows_both_accounts_in_the_column():
     from personal_finance.display import account_cell
 
+    i18n.set_language("sq")
     assert account_cell(entry(TRANSFER, "10", "Banka", "Kesh")) == "Banka -> Kesh"
     assert account_cell(entry(EXPENSE, "10", "Kesh")) == "Kesh"
-    assert account_cell(entry(EXPENSE, "10", "")) == "-"
+    assert account_cell(entry(EXPENSE, "10", "")) == "Pa llogari"
 
 
 def test_unassigned_constant_is_the_empty_string():
@@ -612,7 +612,7 @@ class TestUnassignedRowIsNotAnAccount:
 
         print_accounts(balances_for([], [entry(INCOME, "30", "")]))
         lines = [x for x in capsys.readouterr().out.split("\n") if "€" in x]
-        row = next(x for x in lines if "-" in x and "Totali" not in x)
+        row = next(x for x in lines if "Pa llogari" in x and "Totali" not in x)
         assert not row.strip().startswith("1")
 
     def test_real_accounts_are_still_numbered_from_one(self, capsys):
@@ -627,6 +627,7 @@ class TestUnassignedRowIsNotAnAccount:
     def test_a_legend_explains_the_dash_row(self, capsys):
         from personal_finance.display import print_accounts
 
+        capsys.readouterr()
         print_accounts(balances_for([], [entry(INCOME, "30", "")]))
         assert "nuk i perkasin" in capsys.readouterr().out
 
@@ -925,3 +926,108 @@ class TestInteractiveFlowsAskForAnAccount:
         add_recurring(app)
 
         assert app.recurring_rules[-1].llogaria == ""
+
+
+class TestEmptyFieldLabels:
+    """Empty category, subcategory and account read as words, not a dash.
+
+    Reported from real use: a bare "-" looked like a formatting artefact rather
+    than "this field is empty". All three now use readable labels, and all
+    three follow the interface language - previously the stored category
+    placeholder stayed Albanian while the others were dashes.
+    """
+
+    @pytest.fixture(autouse=True)
+    def plain(self):
+        i18n.set_language("sq")
+        colors.configure(force_off=True)
+        yield
+        i18n.set_language("sq")
+
+    def test_albanian_labels(self):
+        from personal_finance.display import (
+            account_display,
+            category_display,
+            subcategory_display,
+        )
+
+        assert category_display("") == "Pa kategori"
+        assert subcategory_display("") == "Pa nenkategori"
+        assert account_display("") == "Pa llogari"
+
+    def test_english_labels(self):
+        from personal_finance.display import (
+            account_display,
+            category_display,
+            subcategory_display,
+        )
+
+        i18n.set_language("en")
+        assert category_display("") == "No category"
+        assert subcategory_display("") == "No subcategory"
+        assert account_display("") == "No account"
+
+    def test_stored_category_placeholder_is_translated(self):
+        """It is Albanian text in the database, so English mode must render it."""
+        from personal_finance.config import DEFAULT_CATEGORY
+        from personal_finance.display import category_display
+
+        i18n.set_language("en")
+        assert category_display(DEFAULT_CATEGORY) == "No category"
+
+    def test_real_values_pass_through_untouched(self):
+        from personal_finance.display import (
+            account_display,
+            category_display,
+            subcategory_display,
+        )
+
+        assert category_display("Ushqim") == "Ushqim"
+        assert subcategory_display("Dyqan") == "Dyqan"
+        assert account_display("Petrit") == "Petrit"
+
+    def test_no_dash_appears_in_the_transaction_table(self, app, capsys):
+        from personal_finance.display import print_transactions
+        from personal_finance.ui import numbered
+
+        app.add_account("Petrit", CASH, Decimal("0"))
+        app.add_transaction(
+            EXPENSE, "Me gjithcka", Decimal("10"), "01-08-2026", "Ushqim", "Dyqan", "Petrit"
+        )
+        app.add_transaction(EXPENSE, "Pa asgje", Decimal("5"), "02-08-2026")
+        capsys.readouterr()
+
+        print_transactions(numbered(app.transactions))
+        output = capsys.readouterr().out
+        assert "Pa nenkategori" in output
+        assert "Pa llogari" in output
+        assert "Pa kategori" in output
+
+    def test_accounts_table_uses_the_label(self, app, capsys):
+        from personal_finance.display import print_accounts
+
+        app.add_account("Petrit", CASH, Decimal("0"))
+        app.add_transaction(EXPENSE, "Pa asgje", Decimal("5"), "02-08-2026")
+        capsys.readouterr()
+
+        print_accounts(balances_for(app.accounts, app.transactions))
+        assert "Pa llogari" in capsys.readouterr().out
+
+    def test_category_path_translates_the_placeholder(self):
+        from personal_finance.config import DEFAULT_CATEGORY
+        from personal_finance.display import category_path
+
+        blank = Transaction(
+            lloji=EXPENSE,
+            pershkrimi="Pa asgje",
+            shuma=Decimal("10"),
+            data="01-08-2026",
+            kategoria=DEFAULT_CATEGORY,
+        )
+        i18n.set_language("en")
+        assert category_path(blank) == "No category"
+
+    def test_category_path_keeps_a_real_category(self):
+        from personal_finance.display import category_path
+
+        assert category_path(entry(EXPENSE, "10", "")) == "Ushqim"

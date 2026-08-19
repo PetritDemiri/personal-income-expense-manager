@@ -75,12 +75,9 @@ DEFAULT_CATEGORY = "Pa kategori"
 # reads correctly, one that ends in a specific category does not.
 OTHER_CATEGORY = "Te tjera"
 
-# A transaction need not have a subcategory, so the empty string is a valid
-# stored value. This is what gets shown in its place.
-NO_SUBCATEGORY_DISPLAY = "-"
-
-# Typed at an edit prompt to clear an existing subcategory, since pressing
-# Enter there means "leave unchanged".
+# Typed at an edit prompt to clear an existing subcategory or account, since
+# pressing Enter there means "leave unchanged". Purely an input key - the empty
+# state is displayed as readable text, not as a dash.
 CLEAR_MARKER = "-"
 
 # ---------------------------------------------------------------------------
@@ -134,10 +131,6 @@ BANK = "Banke"
 CARD = "Karte"
 
 ACCOUNT_TYPES = (CASH, BANK, CARD)
-
-# Shown in place of the account name for transactions recorded before any
-# account existed, or deliberately left unassigned.
-NO_ACCOUNT_DISPLAY = "-"
 
 # Fraction of a budget at which a warning is shown before it is exceeded.
 BUDGET_WARNING_THRESHOLD = 0.8

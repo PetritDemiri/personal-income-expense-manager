@@ -5,10 +5,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Six versions are recorded below. Five of them were released; 2.0.0 was a
+Seven versions are recorded below. Six of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [2.3.2] — 2026-08-19
+
+Patch release.
+
+### Changed
+
+- An empty category, subcategory, or account now displays as a readable label —
+  `Pa kategori`, `Pa nenkategori`, `Pa llogari` — rather than a bare dash, which
+  read as a formatting artefact rather than as "this field is empty".
+- All three labels follow the interface language. The stored category
+  placeholder is Albanian text held in the database, so it is translated at
+  display time; an English session previously showed it raw beside translated
+  labels.
+
+### Removed
+
+- The `NO_SUBCATEGORY_DISPLAY` and `NO_ACCOUNT_DISPLAY` constants. A string that
+  needs translating does not belong in configuration. `CLEAR_MARKER` remains, as
+  it is a keystroke at the edit prompt rather than a label.
 
 ## [2.3.1] — 2026-08-19
 
