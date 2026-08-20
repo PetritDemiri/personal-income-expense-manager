@@ -171,6 +171,18 @@ financat --eksporto banka.csv --llogaria Banka
 
 The file is written for a spreadsheet rather than for this program. Column headers follow the interface language; amounts are plain decimals with no currency symbol so they parse as numbers; empty fields are blank cells rather than the labels shown on screen. It is written as UTF-8 with a byte order mark, without which Excel mangles every `ë` and `ç`. Use `--ndares ";"` if your spreadsheet expects semicolons, as locales that use a comma for decimals generally do.
 
+A bare filename is written to your Documents folder rather than the current directory, because an export is a document rather than part of the project. Anything with a directory in it is your choice and is left alone:
+
+| You type | Goes to |
+|---|---|
+| `--eksporto transaksionet.csv` | your Documents folder |
+| `--eksporto ./transaksionet.csv` | the current folder |
+| `--eksporto /home/you/out.csv` | exactly there |
+
+Set `FINANCE_EXPORT_DIR` to send bare filenames somewhere else. The full path is always printed after the export, so there is never any question where the file went.
+
+Finding the Documents folder is not simply `~/Documents`. Windows relocates it and OneDrive commonly redirects it, so the path is read from the shell's own registry record; Linux localizes the name, so it comes from the XDG user-dirs configuration. Both fall back to the home directory, and then to the current directory, on a machine that has neither.
+
 Export is one-directional. It is not a storage backend and never reads.
 
 ### Colors
@@ -183,6 +195,7 @@ Income is green, expenses red, headers cyan, warnings yellow. Colors switch off 
 personal_finance/
     config.py      Settings and canonical values
     i18n.py        Message catalogs (sq, en)
+    locations.py   Finding the user's Documents folder
     dates.py       Parsing, formatting, month arithmetic
     models.py      Transaction, RecurringRule, Budget
     storage.py     Storage interface + atomic CSV backend

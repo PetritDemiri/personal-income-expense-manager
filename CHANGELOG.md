@@ -5,10 +5,45 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Eight versions are recorded below. Seven of them were released; 2.0.0 was a
+Nine versions are recorded below. Eight of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [2.4.1] — 2026-08-19
+
+Patch release.
+
+### Changed
+
+- An export given as a bare filename is written to the user's Documents folder
+  rather than the current directory. An export is a document, not part of the
+  project, and it was landing in the project root.
+- A path containing a directory is always honoured, so `./out.csv` and absolute
+  paths behave exactly as before and scripts are unaffected.
+- The full resolved path is printed after an export, rather than echoing back
+  what was typed.
+
+### Added
+
+- A locations module that finds the Documents folder properly. `~/Documents` is
+  wrong on two of the three supported platforms: Windows relocates the folder
+  and OneDrive commonly redirects it, so the path is read from the shell's own
+  registry record, and Linux localizes the name, so it comes from the XDG
+  user-dirs configuration. Both fall back to the home directory and then to the
+  current directory.
+- `FINANCE_EXPORT_DIR` for sending bare filenames somewhere other than
+  Documents.
+- `*.csv` to `.gitignore`. Exports can be named anything, so the list of four
+  known data filenames was not enough to stop financial data reaching a commit.
+
+### Fixed
+
+- The tests that simulate the Linux and macOS folder lookups set only `HOME`.
+  Windows resolves `~` from `USERPROFILE` and ignores `HOME` entirely, so on
+  Windows those tests read the real user's folders instead of the temporary one
+  and failed. They now set both. The production code was unaffected; this was a
+  portability defect in the suite, found by running it on Windows.
 
 ## [2.4.0] — 2026-08-19
 

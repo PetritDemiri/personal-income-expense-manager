@@ -455,6 +455,7 @@ def export_to_csv(app):
     import os
 
     from .export import export_transactions
+    from .locations import resolve_export_path
 
     if not app.transactions:
         print(paint(t("export_empty"), YELLOW))
@@ -466,10 +467,12 @@ def export_to_csv(app):
         print(t("cancelled"))
         return
 
-    # Only asked interactively. On the command line the flag is the intent, and
-    # a prompt would break scripting.
-    if os.path.exists(path):
-        answer = input(t("export_overwrite", path=path)).strip().lower()
+    # Checked against the resolved path, since a bare filename does not land in
+    # the current directory. Only asked interactively: on the command line the
+    # flag is the intent, and a prompt would break scripting.
+    resolved = resolve_export_path(path)
+    if os.path.exists(resolved):
+        answer = input(t("export_overwrite", path=resolved)).strip().lower()
         if answer not in affirmatives():
             print(t("cancelled"))
             return
@@ -503,11 +506,11 @@ def export_to_csv(app):
         matches = filter_by_dates(app.transactions, start, end)
 
     try:
-        count = export_transactions(path, sort_by_date(matches))
+        count, written_to = export_transactions(path, sort_by_date(matches))
     except Exception as error:
         print(paint(t("export_failed", error=error), RED))
         return
-    print(paint(t("exported", count=count, path=path), BOLD))
+    print(paint(t("exported", count=count, path=written_to), BOLD))
 
 
 # ---------------------------------------------------------------------------

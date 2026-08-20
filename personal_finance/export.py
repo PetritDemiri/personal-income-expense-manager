@@ -30,6 +30,7 @@ import tempfile
 
 from .config import CURRENCY_SYMBOL, DEFAULT_CATEGORY, TRANSFER
 from .i18n import t, type_label
+from .locations import resolve_export_path
 
 DEFAULT_DELIMITER = ","
 
@@ -75,7 +76,12 @@ def transaction_row(transaction):
 
 
 def export_transactions(path, transactions, delimiter=DEFAULT_DELIMITER):
-    """Write transactions to a CSV file. Returns the number of rows written.
+    """Write transactions to a CSV file. Returns (rows_written, resolved_path).
+
+    A bare filename lands in the user's Documents folder; a path with a
+    directory in it is used as given. The resolved path is returned so the
+    caller can tell the user where the file actually went - echoing back what
+    they typed leaves them hunting for it.
 
     Written atomically, for the same reason saves are: a half-written export
     that silently replaced a good one would be worse than no export at all.
@@ -83,6 +89,7 @@ def export_transactions(path, transactions, delimiter=DEFAULT_DELIMITER):
     if delimiter not in ALLOWED_DELIMITERS:
         raise ValueError("ndares i pavlefshem")
 
+    path = resolve_export_path(path)
     directory = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(directory, exist_ok=True)
 
@@ -115,4 +122,4 @@ def export_transactions(path, transactions, delimiter=DEFAULT_DELIMITER):
             pass
         raise
 
-    return count
+    return count, path

@@ -530,11 +530,13 @@ def do_export(app, args):
         return
 
     try:
-        count = export_transactions(args.eksporto, rows, delimiter=delimiter)
+        count, written_to = export_transactions(args.eksporto, rows, delimiter=delimiter)
     except Exception as error:
         print(paint(t("export_failed", error=error), RED))
         return
-    print(paint(t("exported", count=count, path=args.eksporto), BOLD))
+    # The resolved path, not what was typed - a bare filename gives no clue
+    # where the file actually landed.
+    print(paint(t("exported", count=count, path=written_to), BOLD))
 
 
 def do_report(app, args):

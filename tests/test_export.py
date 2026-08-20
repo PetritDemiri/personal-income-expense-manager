@@ -205,12 +205,15 @@ class TestWriteSafety:
 
     def test_empty_list_writes_just_the_header(self, tmp_path):
         path = str(tmp_path / "out.csv")
-        assert export_transactions(path, []) == 0
+        count, _written_to = export_transactions(path, [])
+        assert count == 0
         assert len(read_back(path)) == 1
 
-    def test_returns_the_row_count(self, tmp_path):
+    def test_returns_the_row_count_and_where_it_wrote(self, tmp_path):
         path = str(tmp_path / "out.csv")
-        assert export_transactions(path, [entry(), entry(), entry()]) == 3
+        count, written_to = export_transactions(path, [entry(), entry(), entry()])
+        assert count == 3
+        assert written_to == os.path.abspath(path)
 
 
 class TestLanguage:
