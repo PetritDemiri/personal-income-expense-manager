@@ -9,6 +9,12 @@ finance.db-shm
 transactions.csv
 recurring.csv
 budgets.csv
+accounts.csv
+
+# Exports can be named anything, so no list of filenames is enough. The repo
+# tracks no CSVs, so ignoring all of them costs nothing and stops financial
+# data reaching a commit by accident.
+*.csv
 
 # Keep sample/template data if you ever add it, e.g.:
 # !transactions.example.csv
