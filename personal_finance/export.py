@@ -28,9 +28,10 @@ import csv
 import os
 import tempfile
 
-from .config import CURRENCY_SYMBOL, DEFAULT_CATEGORY, TRANSFER
+from .config import CURRENCY_SYMBOL
 from .i18n import t, type_label
 from .locations import resolve_export_path
+from .schema import TRANSFER
 
 DEFAULT_DELIMITER = ","
 
@@ -53,25 +54,24 @@ def column_titles():
     ]
 
 
-def transaction_row(transaction):
+def transaction_row(item):
     """One transaction as a list of cell values.
 
-    Empty fields are written empty rather than as the "no category" style
-    labels used on screen. A blank cell is what a spreadsheet expects; a
-    placeholder word would be counted as a real value by anything grouping the
-    column. That includes the stored category sentinel, which is a placeholder
-    held in the database rather than a category the user chose.
+    Absent fields are written as blank cells rather than the labels shown on
+    screen. A blank is what a spreadsheet expects; a placeholder word would be
+    counted as a real value by anything grouping the column. Since version 3
+    an absent field is NULL rather than a sentinel, so this is simply the
+    empty string.
     """
-    category = "" if transaction.kategoria == DEFAULT_CATEGORY else transaction.kategoria
     return [
-        transaction.data,
-        type_label(transaction.lloji),
-        transaction.pershkrimi,
-        category,
-        transaction.nenkategoria,
-        transaction.llogaria,
-        transaction.llogaria_dest if transaction.lloji == TRANSFER else "",
-        f"{transaction.shuma:.2f}",
+        item.occurred_on,
+        type_label(item.kind),
+        item.description,
+        item.category or "",
+        item.subcategory or "",
+        item.account or "",
+        (item.to_account or "") if item.kind == TRANSFER else "",
+        f"{item.amount:.2f}",
     ]
 
 

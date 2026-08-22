@@ -5,10 +5,79 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Nine versions are recorded below. Eight of them were released; 2.0.0 was a
+Ten versions are recorded below. Nine of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.0.0] — 2026-08-19
+
+A rewrite of the storage layer. The application is SQLite-only, the schema is
+written from scratch rather than migrated into shape, and Python identifiers are
+English while stored values and the interface stay Albanian.
+
+**This release starts from an empty database.** There is no migration from
+version 2, by choice: the CSV backend and its file formats are gone, and so is
+the code that read them. Export from 2.4.1 before upgrading if you want a record
+of what was there.
+
+### Added
+
+- A schema module holding the whole database definition in one place, with
+  foreign keys, CHECK constraints, timestamp columns, and an audit table.
+- A database layer with row-level operations. Adding a transaction inserts one
+  row; previously every write replaced an entire table, because that is all a
+  text file can do.
+- Filtering, searching, and aggregation in SQL, against indexes, rather than in
+  a Python loop over everything held in memory.
+- Categories and subcategories as real records with foreign keys. A name typed
+  for the first time is still created automatically, so entry does not stall on
+  defining things up front.
+- A transaction view carrying both the ids the database stores and the names a
+  reader wants, resolved by the join the query needs anyway.
+- An `atomic()` context manager, so anything touching more than one table
+  commits completely or not at all.
+- CHECK constraints the database enforces regardless of what the application
+  believes: a transaction kind must be one of the three, a description cannot be
+  blank, an amount cannot be negative, a transfer cannot point at its own
+  account, and a date must be ISO-shaped.
+
+### Changed
+
+- Every reference is a foreign key rather than a name. Renaming an account is
+  now one row, where it previously meant rewriting every transaction and rule
+  that named it.
+- Absence is NULL. The `Pa kategori` sentinel and the empty-string account are
+  gone from storage; they exist only as display labels.
+- The service layer holds no cached list of transactions. A cached list can
+  drift from what is stored, and keeping it in step is why every write used to
+  rewrite the whole table.
+- Deleting an account or category leaves its transactions in place, now enforced
+  by `ON DELETE SET NULL` rather than by application code remembering to do it.
+  Subcategories and budgets cascade, having no meaning without their parent.
+
+### Removed
+
+- The CSV storage backend, `--csv`, and the dual-backend test fixture.
+- The legacy CSV reader. Version 2 data does not carry over.
+
+### Fixed
+
+- Six defects found while rewriting, none of them caught by the existing tests:
+  filter clauses unqualified against a three-table join; a mechanical rename
+  that missed one of two near-identical lines; a message called with the wrong
+  placeholder name; a "nothing to nest" check comparing against the old
+  empty-string sentinel; single-row reads returning a model where every other
+  read returned a view; and a test helper whose reformatting made a scripted
+  edit silently no-op.
+
+### Notes
+
+- 479 tests, down from 583. The suites covering the CSV backend, the
+  dual-backend parity, and the sentinel-string behaviour were deleted because
+  none of those things exist any more.
+- Timestamps and the audit log have their tables in this release but are
+  populated in 3.1.0 and 3.2.0.
 
 ## [2.4.1] — 2026-08-19
 

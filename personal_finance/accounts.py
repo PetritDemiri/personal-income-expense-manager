@@ -1,39 +1,33 @@
 """Llogarite / Accounts.
 
-An account is somewhere money sits: cash in a wallet, a bank account, a card.
-Pure calculation only - no printing, no input.
+An account is somewhere money sits: cash, a bank account, a card. Pure
+calculation - no printing, no database.
 
-Accounts are optional throughout. With none defined the program behaves
-exactly as it did before: no account prompt, no account column, one combined
-balance. Everything here degrades to that case rather than special-casing it.
+Accounts remain optional throughout. With none defined the program behaves as
+it always did: no account prompt, no account column, one combined balance.
 
-Two things make per-account balances correct rather than merely plausible:
-
-An opening balance, because an account that already held 500 euros when
-tracking began does not have a balance of zero.
-
-Transfers, because moving money between your own accounts is neither income
-nor an expense. Recording an ATM withdrawal as an expense would make the total
-across all accounts fall by money you still have; recording nothing would
-leave the bank too high and the cash too low.
+Two things make per-account balances correct rather than merely plausible. An
+opening balance, because an account that already held money when tracking began
+does not start at zero. And transfers, because moving money between your own
+accounts is neither income nor an expense: recording an ATM withdrawal as
+spending would drop the combined total by money still held, and recording
+nothing would leave one account too high and the other too low.
 """
 
-from decimal import Decimal
+from .reports import ZERO
+from .schema import EXPENSE, INCOME, TRANSFER
 
-from .config import EXPENSE, INCOME, TRANSFER
-
-ZERO = Decimal("0.00")
-
-# Key used for transactions with no account, so they can still be totalled.
-UNASSIGNED = ""
+# Key for transactions tied to no account, so they can still be totalled.
+UNASSIGNED = None
 
 
 class AccountBalance:
-    """One account's opening balance, movements, and resulting balance."""
+    """One account's opening balance, movements and resulting balance."""
 
-    def __init__(self, name, account_type="", opening=ZERO):
+    def __init__(self, account_id, name, kind="", opening=ZERO):
+        self.account_id = account_id
         self.name = name
-        self.account_type = account_type
+        self.kind = kind
         self.opening = opening
         self.income = ZERO
         self.expenses = ZERO
@@ -49,58 +43,59 @@ class AccountBalance:
 
     @property
     def is_unassigned(self):
-        return self.name == UNASSIGNED
+        return self.account_id is UNASSIGNED
 
     def __repr__(self):
-        name = self.name or "<pa llogari>"
-        return f"AccountBalance({name!r}, balance={self.balance})"
+        shown = self.name or "<pa llogari>"
+        return f"AccountBalance({shown!r}, balance={self.balance})"
 
 
-def apply_transaction(balances, transaction):
+def apply_transaction(balances, item):
     """Add one transaction's effect to whichever balances it touches.
 
     A transfer touches two: it leaves one account and arrives in another.
     """
-    source = balances.get(transaction.llogaria)
+    source = balances.get(item.account_id)
     if source is not None:
         source.count += 1
 
-    if transaction.lloji == INCOME:
+    if item.kind == INCOME:
         if source is not None:
-            source.income += transaction.shuma
-    elif transaction.lloji == EXPENSE:
+            source.income += item.amount
+    elif item.kind == EXPENSE:
         if source is not None:
-            source.expenses += transaction.shuma
-    elif transaction.lloji == TRANSFER:
+            source.expenses += item.amount
+    elif item.kind == TRANSFER:
         if source is not None:
-            source.transferred_out += transaction.shuma
-        destination = balances.get(transaction.llogaria_dest)
+            source.transferred_out += item.amount
+        destination = balances.get(item.to_account_id)
         if destination is not None:
-            destination.transferred_in += transaction.shuma
+            destination.transferred_in += item.amount
             destination.count += 1
 
 
 def balances_for(accounts, transactions):
-    """Balances for every account, plus unassigned transactions if any exist.
+    """Balances for every account, plus unassigned money if any exists.
 
-    The unassigned entry appears only when something actually needs it, so a
-    user who has always used accounts never sees a stray row.
+    The unassigned entry appears only when something needs it, so someone who
+    has always used accounts never sees a stray row.
     """
     balances = {
-        account.emri: AccountBalance(account.emri, account.lloji, account.gjendja_fillestare)
+        account.id: AccountBalance(account.id, account.name, account.kind, account.opening)
         for account in accounts
     }
 
     needs_unassigned = any(
-        not t.llogaria or (t.lloji == TRANSFER and not t.llogaria_dest) for t in transactions
+        item.account_id is None or (item.kind == TRANSFER and item.to_account_id is None)
+        for item in transactions
     )
     if needs_unassigned:
-        balances[UNASSIGNED] = AccountBalance(UNASSIGNED)
+        balances[UNASSIGNED] = AccountBalance(UNASSIGNED, None)
 
-    for transaction in transactions:
-        apply_transaction(balances, transaction)
+    for item in transactions:
+        apply_transaction(balances, item)
 
-    ordered = [balances[account.emri] for account in accounts if account.emri in balances]
+    ordered = [balances[a.id] for a in accounts if a.id in balances]
     if UNASSIGNED in balances:
         ordered.append(balances[UNASSIGNED])
     return ordered
@@ -113,107 +108,29 @@ def total_balance(accounts, transactions):
 
 def find_account(accounts, name):
     """The account with this name, or None. Matching ignores case."""
+    from .models import name_key
+
     if not name:
         return None
-    needle = name.strip().casefold()
+    needle = name_key(name)
     for account in accounts:
-        if account.emri.casefold() == needle:
+        if name_key(account.name) == needle:
             return account
     return None
 
 
-def account_names(accounts):
-    """Account names in the order they were defined."""
-    return [account.emri for account in accounts]
-
-
-def filter_by_account(transactions, name):
-    """Transactions touching one account, transfers in either direction included."""
+def filter_by_account(transactions, account_id):
+    """Transactions touching one account, transfers in either direction."""
     return [
-        t
-        for t in transactions
-        if t.llogaria == name or (t.lloji == TRANSFER and t.llogaria_dest == name)
+        item
+        for item in transactions
+        if item.account_id == account_id
+        or (item.kind == TRANSFER and item.to_account_id == account_id)
     ]
 
 
-def rename_account(accounts, transactions, rules, old_name, new_name):
-    """Rename an account and repoint everything that referenced it.
-
-    Names are the reference, so a rename that missed a transaction would
-    silently orphan it into the unassigned pile.
-    """
-    account = find_account(accounts, old_name)
-    if account is None:
-        return 0
-
-    touched = 0
-    for transaction in transactions:
-        if transaction.llogaria == account.emri:
-            transaction.llogaria = new_name
-            touched += 1
-        if transaction.llogaria_dest == account.emri:
-            transaction.llogaria_dest = new_name
-            touched += 1
-    for rule in rules:
-        if rule.llogaria == account.emri:
-            rule.llogaria = new_name
-            touched += 1
-
-    account.emri = new_name
-    return touched
-
-
-def unassign_account(transactions, rules, name):
-    """Clear an account from everything that referenced it, before deleting it.
-
-    Deleting an account leaves its transactions behind - they still happened.
-    They become unassigned rather than pointing at something gone.
-    """
-    touched = 0
-    for transaction in transactions:
-        if transaction.llogaria == name:
-            transaction.llogaria = ""
-            touched += 1
-        if transaction.llogaria_dest == name:
-            transaction.llogaria_dest = ""
-            touched += 1
-    for rule in rules:
-        if rule.llogaria == name:
-            rule.llogaria = ""
-            touched += 1
-    return touched
-
-
-def assign_unassigned(transactions, rules, name):
-    """Give every transaction and recurring rule with no account to `name`.
-
-    Returns (assigned, skipped). Recurring rules are included deliberately: a
-    rule with no account would keep generating unassigned transactions after
-    the existing ones were tidied up.
-
-    A transfer whose other side is already this account is skipped rather than
-    turned into a transfer from an account to itself.
-    """
-    assigned = 0
-    skipped = 0
-
-    for transaction in transactions:
-        if transaction.llogaria:
-            continue
-        if transaction.lloji == TRANSFER and transaction.llogaria_dest == name:
-            skipped += 1
-            continue
-        transaction.llogaria = name
-        assigned += 1
-
-    for rule in rules:
-        if not rule.llogaria:
-            rule.llogaria = name
-            assigned += 1
-
-    return assigned, skipped
-
-
 def count_unassigned(transactions, rules):
-    """How many transactions and rules currently have no account."""
-    return sum(1 for t in transactions if not t.llogaria) + sum(1 for r in rules if not r.llogaria)
+    """How many transactions and rules are tied to no account."""
+    return sum(1 for t in transactions if t.account_id is None) + sum(
+        1 for r in rules if r.account_id is None
+    )

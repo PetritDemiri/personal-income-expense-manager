@@ -8,43 +8,41 @@ amounts as plain numbers, and a delimiter that suits the reader's locale.
 
 import csv
 import os
-from decimal import Decimal
 
 import pytest
 
 from personal_finance import colors, i18n
 from personal_finance.cli import main
-from personal_finance.config import DEFAULT_CATEGORY, EXPENSE, INCOME, TRANSFER
 from personal_finance.export import (
     ALLOWED_DELIMITERS,
     column_titles,
     export_transactions,
     transaction_row,
 )
-from personal_finance.models import Transaction
+from personal_finance.schema import EXPENSE, INCOME, TRANSFER
 
-from .conftest import make_transaction
+from .conftest import make_view
 
 
 def entry(
-    trans_type=EXPENSE,
+    kind=EXPENSE,
     amount="10.00",
     category="Ushqim",
-    subcategory="",
-    account="",
-    destination="",
+    subcategory=None,
+    account=None,
+    destination=None,
     date="15-06-2026",
     description="Test",
 ):
-    return Transaction(
-        lloji=trans_type,
-        pershkrimi=description,
-        shuma=Decimal(amount),
-        data=date,
-        kategoria=category,
-        nenkategoria=subcategory,
-        llogaria=account,
-        llogaria_dest=destination,
+    return make_view(
+        kind,
+        description,
+        amount,
+        date,
+        category=category,
+        subcategory=subcategory,
+        account=account,
+        to_account=destination,
     )
 
 
@@ -119,15 +117,15 @@ class TestEmptyFieldsAreBlank:
         export_transactions(path, [entry(account="")])
         assert read_back(path)[1][5] == ""
 
-    def test_category_sentinel_is_a_blank_cell(self, tmp_path):
-        """It is a placeholder in the database, not a category the user chose."""
+    def test_an_absent_category_is_a_blank_cell(self, tmp_path):
+        """Absence is NULL now, so this is simply an empty string."""
         path = str(tmp_path / "out.csv")
-        export_transactions(path, [entry(category=DEFAULT_CATEGORY)])
+        export_transactions(path, [entry(category=None)])
         assert read_back(path)[1][3] == ""
 
     def test_screen_labels_do_not_leak_into_the_file(self, tmp_path):
         path = str(tmp_path / "out.csv")
-        export_transactions(path, [entry(category=DEFAULT_CATEGORY, subcategory="", account="")])
+        export_transactions(path, [entry(category=None, subcategory=None, account=None)])
         contents = open(path, encoding="utf-8-sig").read()
         assert "Pa nenkategori" not in contents
         assert "Pa llogari" not in contents
@@ -357,7 +355,7 @@ class TestCliExport:
         assert "Jane lexuar" not in capsys.readouterr().out
 
 
-def test_default_transaction_exports_cleanly(tmp_path):
+def test_a_plain_view_exports_cleanly(tmp_path):
     path = str(tmp_path / "out.csv")
-    export_transactions(path, [make_transaction()])
+    export_transactions(path, [make_view()])
     assert len(read_back(path)) == 2

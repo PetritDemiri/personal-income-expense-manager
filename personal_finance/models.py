@@ -1,34 +1,69 @@
 """Modelet / Data models.
 
-Each model knows how to convert itself to and from a CSV row. Keeping that
-knowledge next to the model - rather than spread through the storage layer -
-means a new field is added in one place.
+Plain records passed between the database and the rest of the program. They
+carry an `id` once stored, and `None` where the database holds NULL - there are
+no sentinel strings any more. "No category" is the absence of a category, not
+a category named "no category".
 
-Money is always Decimal. Constructing a model from a row raises ValueError on
-bad input so the storage layer can skip exactly one corrupted row instead of
-discarding a whole file.
+Identifiers are English; the values they hold are the user's, in whatever
+language the user wrote them. Conversion between what the database stores and
+what these hold - cents to Decimal, ISO dates to dd-mm-yyyy - happens in the
+repository layer, not here, so a model is only ever holding the same kinds of
+value the rest of the program works with.
 """
 
+import unicodedata
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
+from typing import Optional
 
-from .config import (
-    CASH,
-    DEFAULT_CATEGORY,
-    EXPENSE,
-    INCOME,
-    LEGACY_TYPE_ALIASES,
-    TRANSACTION_TYPES,
-    TRANSFER,
-)
-from .dates import parse_date
+from .schema import EXPENSE, INCOME, TRANSFER
+
+ENTRY_KINDS = (INCOME, EXPENSE)
+ALL_KINDS = (INCOME, EXPENSE, TRANSFER)
+
+CASH = "Kesh"
+BANK = "Banke"
+CARD = "Karte"
+ACCOUNT_KINDS = (CASH, BANK, CARD)
+
+ZERO = Decimal("0.00")
+
+
+def name_key(name):
+    """Normalised form of a name, for case-insensitive uniqueness.
+
+    SQLite's COLLATE NOCASE folds only A-Z, so it treats "Ë" and "ë" as
+    different letters and would allow both as separate categories. Composing
+    accents first means a name typed with a combining diaeresis matches the
+    same name typed with a precomposed one.
+    """
+    return unicodedata.normalize("NFC", (name or "").strip()).casefold()
 
 
 def parse_amount(value, allow_zero=True):
-    """Convert a value to a non-negative Decimal, or return None if invalid.
+    """Convert a value to a non-negative Decimal, or None if it is not one."""
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        amount = value
+    else:
+        try:
+            amount = Decimal(str(value).strip())
+        except (InvalidOperation, AttributeError, ValueError):
+            return None
+    if not amount.is_finite() or amount < 0:
+        return None
+    if amount == 0 and not allow_zero:
+        return None
+    return amount
 
-    Used by both the models and the interactive prompts, so a value typed at a
-    prompt and a value read from a file are validated identically.
+
+def parse_signed_amount(value):
+    """Convert a value to a Decimal that may be negative.
+
+    Used for an account's opening balance, which is routinely negative on a
+    card and must not go through the non-negative check above.
     """
     if value is None:
         return None
@@ -39,303 +74,157 @@ def parse_amount(value, allow_zero=True):
             amount = Decimal(str(value).strip())
         except (InvalidOperation, AttributeError, ValueError):
             return None
-    if not amount.is_finite():
-        return None
-    if amount < 0:
-        return None
-    if amount == 0 and not allow_zero:
-        return None
-    return amount
+    return amount if amount.is_finite() else None
 
 
-def normalize_type(value):
-    """Map a stored type onto a canonical one, or return None if unrecognised.
+@dataclass
+class Account:
+    """Somewhere money sits: cash, a bank account, a card."""
 
-    Files written by older versions used English values; those are translated
-    here so old data keeps working.
-    """
-    if value is None:
-        return None
-    text = str(value).strip()
-    if text in TRANSACTION_TYPES:
-        return text
-    return LEGACY_TYPE_ALIASES.get(text.lower())
+    name: str
+    kind: str = CASH
+    opening: Decimal = field(default_factory=lambda: ZERO)
+    position: int = 0
+    id: Optional[int] = None
+
+    @property
+    def key(self):
+        return name_key(self.name)
+
+
+@dataclass
+class Category:
+    """A grouping for transactions of one kind."""
+
+    name: str
+    kind: str = EXPENSE
+    id: Optional[int] = None
+
+    @property
+    def key(self):
+        return name_key(self.name)
+
+
+@dataclass
+class Subcategory:
+    """A grouping within a category. Meaningless without its parent."""
+
+    name: str
+    category_id: int
+    id: Optional[int] = None
+
+    @property
+    def key(self):
+        return name_key(self.name)
 
 
 @dataclass
 class Transaction:
-    """A single income or expense entry."""
+    """A single entry: income, an expense, or a movement between accounts.
 
-    lloji: str
-    pershkrimi: str
-    shuma: Decimal
-    data: str
-    kategoria: str = DEFAULT_CATEGORY
-    # Optional: the empty string means the transaction sits directly in its
-    # category with no subcategory.
-    nenkategoria: str = ""
-    # Optional: the empty string means the transaction is not tied to any
-    # account, which is what every transaction recorded before accounts
-    # existed looks like.
-    llogaria: str = ""
-    # Only meaningful on a transfer: the account the money arrives in.
-    llogaria_dest: str = ""
+    Every reference is optional. A transaction with no category is not a
+    transaction in some placeholder category - it simply has none.
+    """
 
-    FIELDNAMES = [
-        "lloji",
-        "pershkrimi",
-        "shuma",
-        "data",
-        "kategoria",
-        "nenkategoria",
-        "llogaria",
-        "llogaria_dest",
-    ]
+    kind: str
+    description: str
+    amount: Decimal
+    occurred_on: str
+    category_id: Optional[int] = None
+    subcategory_id: Optional[int] = None
+    account_id: Optional[int] = None
+    to_account_id: Optional[int] = None
+    id: Optional[int] = None
 
     @property
     def is_income(self):
-        return self.lloji == INCOME
+        return self.kind == INCOME
 
     @property
     def is_expense(self):
-        return self.lloji == EXPENSE
+        return self.kind == EXPENSE
 
     @property
     def is_transfer(self):
-        return self.lloji == TRANSFER
+        return self.kind == TRANSFER
+
+
+@dataclass
+class TransactionView:
+    """A transaction with the names of the things it points at.
+
+    Reading needs names; writing needs ids. Rather than have every caller
+    resolve one to the other, the query that fetches transactions already
+    joins the referenced tables, so the names come back for free and land
+    here. Reports and the display work on views; writes take Transactions.
+
+    A name is None where the reference is - a transaction with no category has
+    no category name, rather than a name meaning "no category".
+    """
+
+    id: int
+    kind: str
+    description: str
+    amount: Decimal
+    occurred_on: str
+    category_id: Optional[int] = None
+    subcategory_id: Optional[int] = None
+    account_id: Optional[int] = None
+    to_account_id: Optional[int] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    account: Optional[str] = None
+    to_account: Optional[str] = None
 
     @property
-    def date(self):
-        """The transaction date as a date object, or None if unparseable."""
-        return parse_date(self.data)
+    def is_income(self):
+        return self.kind == INCOME
 
-    @classmethod
-    def from_row(cls, row):
-        """Build a Transaction from a CSV row, raising ValueError if invalid."""
-        trans_type = normalize_type(row.get("lloji"))
-        if trans_type is None:
-            raise ValueError("lloji i pavlefshem")
+    @property
+    def is_expense(self):
+        return self.kind == EXPENSE
 
-        amount = parse_amount(row.get("shuma"))
-        if amount is None:
-            raise ValueError("shume e pavlefshme")
-
-        # Rows written before categories existed simply have no such column.
-        category = (row.get("kategoria") or "").strip() or DEFAULT_CATEGORY
-
-        description = (row.get("pershkrimi") or "").strip()
-        if not description:
-            raise ValueError("pershkrim i zbrazet")
-
-        date_str = (row.get("data") or "").strip()
-        if parse_date(date_str) is None:
-            raise ValueError("date e pavlefshme")
-
-        # Rows written before subcategories existed have no such column.
-        subcategory = (row.get("nenkategoria") or "").strip()
-        # Likewise for accounts.
-        account = (row.get("llogaria") or "").strip()
-        destination = (row.get("llogaria_dest") or "").strip()
-
-        if trans_type == TRANSFER and not destination:
-            raise ValueError("transferimi pa llogari destinacioni")
-
-        return cls(
-            lloji=trans_type,
-            pershkrimi=description,
-            shuma=amount,
-            data=date_str,
-            kategoria=category,
-            nenkategoria=subcategory,
-            llogaria=account,
-            llogaria_dest=destination,
-        )
-
-    def to_row(self):
-        """Convert to a CSV row."""
-        return {
-            "lloji": self.lloji,
-            "pershkrimi": self.pershkrimi,
-            "shuma": f"{self.shuma:.2f}",
-            "data": self.data,
-            "kategoria": self.kategoria,
-            "nenkategoria": self.nenkategoria,
-            "llogaria": self.llogaria,
-            "llogaria_dest": self.llogaria_dest,
-        }
+    @property
+    def is_transfer(self):
+        return self.kind == TRANSFER
 
 
 @dataclass
 class RecurringRule:
     """A rule that generates transactions on a schedule."""
 
-    lloji: str
-    pershkrimi: str
-    shuma: Decimal
-    kategoria: str = DEFAULT_CATEGORY
-    nenkategoria: str = ""
-    llogaria: str = ""
-    frekuenca: str = "mujore"
-    data_fillimit: str = ""
-    # Empty means nothing has been generated yet, so the first occurrence due
-    # is the start date itself.
-    data_e_fundit: str = ""
+    kind: str
+    description: str
+    amount: Decimal
+    frequency: str = "mujore"
+    starts_on: str = ""
+    generated_upto: Optional[str] = None
+    category_id: Optional[int] = None
+    subcategory_id: Optional[int] = None
+    account_id: Optional[int] = None
+    to_account_id: Optional[int] = None
+    id: Optional[int] = None
 
-    FIELDNAMES = [
-        "lloji",
-        "pershkrimi",
-        "shuma",
-        "kategoria",
-        "nenkategoria",
-        "llogaria",
-        "frekuenca",
-        "data_fillimit",
-        "data_e_fundit",
-    ]
-
-    @property
-    def start_date(self):
-        return parse_date(self.data_fillimit)
-
-    @property
-    def last_generated(self):
-        return parse_date(self.data_e_fundit)
-
-    @classmethod
-    def from_row(cls, row, valid_frequencies=None):
-        """Build a RecurringRule from a CSV row, raising ValueError if invalid."""
-        trans_type = normalize_type(row.get("lloji"))
-        if trans_type is None:
-            raise ValueError("lloji i pavlefshem")
-
-        amount = parse_amount(row.get("shuma"))
-        if amount is None:
-            raise ValueError("shume e pavlefshme")
-
-        frequency = (row.get("frekuenca") or "").strip()
-        if valid_frequencies is not None and frequency not in valid_frequencies:
-            raise ValueError("frekuence e panjohur")
-
-        start = (row.get("data_fillimit") or "").strip()
-        if parse_date(start) is None:
-            raise ValueError("date fillimi e pavlefshme")
-
-        last = (row.get("data_e_fundit") or "").strip()
-        # An unparseable last-generated date is treated as "never generated"
-        # rather than as a fatal error, so the rule keeps working.
-        if last and parse_date(last) is None:
-            last = ""
-
-        description = (row.get("pershkrimi") or "").strip()
-        if not description:
-            raise ValueError("pershkrim i zbrazet")
-
-        return cls(
-            lloji=trans_type,
-            pershkrimi=description,
-            shuma=amount,
-            kategoria=(row.get("kategoria") or "").strip() or DEFAULT_CATEGORY,
-            nenkategoria=(row.get("nenkategoria") or "").strip(),
-            llogaria=(row.get("llogaria") or "").strip(),
-            frekuenca=frequency,
-            data_fillimit=start,
-            data_e_fundit=last,
-        )
-
-    def to_row(self):
-        return {
-            "lloji": self.lloji,
-            "pershkrimi": self.pershkrimi,
-            "shuma": f"{self.shuma:.2f}",
-            "kategoria": self.kategoria,
-            "nenkategoria": self.nenkategoria,
-            "llogaria": self.llogaria,
-            "frekuenca": self.frekuenca,
-            "data_fillimit": self.data_fillimit,
-            "data_e_fundit": self.data_e_fundit,
-        }
-
-    def to_transaction(self, date_obj):
-        """Create the transaction this rule produces on a given date."""
+    def to_transaction(self, occurrence_date):
+        """The transaction this rule produces on a given date."""
         from .dates import format_date
 
         return Transaction(
-            lloji=self.lloji,
-            pershkrimi=self.pershkrimi,
-            shuma=self.shuma,
-            data=format_date(date_obj),
-            kategoria=self.kategoria,
-            nenkategoria=self.nenkategoria,
-            llogaria=self.llogaria,
+            kind=self.kind,
+            description=self.description,
+            amount=self.amount,
+            occurred_on=format_date(occurrence_date),
+            category_id=self.category_id,
+            subcategory_id=self.subcategory_id,
+            account_id=self.account_id,
+            to_account_id=self.to_account_id,
         )
-
-
-@dataclass
-class Account:
-    """A place money sits: cash, a bank account, a card.
-
-    The opening balance is what was already there when tracking started.
-    Without it, an account that held 500 euros on day one would report a
-    balance of zero until enough income was recorded to make up the
-    difference.
-    """
-
-    emri: str
-    lloji: str = CASH
-    gjendja_fillestare: Decimal = field(default_factory=lambda: Decimal("0.00"))
-
-    FIELDNAMES = ["emri", "lloji", "gjendja_fillestare"]
-
-    @classmethod
-    def from_row(cls, row):
-        name = (row.get("emri") or "").strip()
-        if not name:
-            raise ValueError("emer i zbrazet")
-
-        account_type = (row.get("lloji") or "").strip() or CASH
-
-        # An opening balance may legitimately be negative - a credit card
-        # usually starts owing money - so it is not run through parse_amount.
-        # A missing column is zero, not the string "None" - which is what
-        # str(row.get(...)) quietly produces when the key is absent.
-        raw = row.get("gjendja_fillestare")
-        text = "" if raw is None else str(raw).strip()
-        try:
-            opening = Decimal(text) if text else Decimal("0.00")
-        except (InvalidOperation, AttributeError, TypeError):
-            raise ValueError("gjendje fillestare e pavlefshme") from None
-        if not opening.is_finite():
-            raise ValueError("gjendje fillestare e pavlefshme")
-
-        return cls(emri=name, lloji=account_type, gjendja_fillestare=opening)
-
-    def to_row(self):
-        return {
-            "emri": self.emri,
-            "lloji": self.lloji,
-            "gjendja_fillestare": f"{self.gjendja_fillestare:.2f}",
-        }
 
 
 @dataclass
 class Budget:
-    """A monthly spending limit for one category."""
+    """A monthly spending limit on one category."""
 
-    kategoria: str
-    shuma: Decimal = field(default_factory=lambda: Decimal("0.00"))
-
-    FIELDNAMES = ["kategoria", "shuma"]
-
-    @classmethod
-    def from_row(cls, row):
-        """Build a Budget from a CSV row, raising ValueError if invalid."""
-        category = (row.get("kategoria") or "").strip()
-        if not category:
-            raise ValueError("kategori e zbrazet")
-        amount = parse_amount(row.get("shuma"), allow_zero=False)
-        if amount is None:
-            raise ValueError("shume e pavlefshme")
-        return cls(kategoria=category, shuma=amount)
-
-    def to_row(self):
-        return {"kategoria": self.kategoria, "shuma": f"{self.shuma:.2f}"}
+    category_id: int
+    limit: Decimal
+    id: Optional[int] = None

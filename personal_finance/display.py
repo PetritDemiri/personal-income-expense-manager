@@ -8,8 +8,8 @@ from decimal import Decimal
 
 from .budgets import NEAR, OVER
 from .colors import BOLD, CYAN, DIM, GREEN, RED, YELLOW, amount_color, paint, type_color
-from .config import CURRENCY_SYMBOL, DEFAULT_CATEGORY, EXPENSE, INCOME, TRANSFER
-from .dates import format_month
+from .config import CURRENCY_SYMBOL
+from .dates import format_date, format_month
 from .i18n import frequency_label, t, type_label
 from .recurring import next_occurrence
 from .reports import (
@@ -18,18 +18,17 @@ from .reports import (
     totals_by_category,
     totals_by_subcategory,
 )
+from .schema import EXPENSE, INCOME, TRANSFER
 
 
 def category_display(value):
-    """A category for display.
+    """A category for display, or a readable label when there is none.
 
-    The stored placeholder is Albanian text sitting in the database, so it is
-    translated here rather than shown raw - otherwise an English session would
-    read "Pa kategori" beside "No subcategory" in the same row.
+    There is no stored placeholder any more - a transaction with no category
+    has NULL in that column - so this turns absence into words rather than
+    translating a sentinel.
     """
-    if not value or value == DEFAULT_CATEGORY:
-        return t("no_category_display")
-    return value
+    return value or t("no_category_display")
 
 
 def account_display(value):
@@ -37,14 +36,11 @@ def account_display(value):
     return value or t("no_account_display")
 
 
-def account_cell(transaction):
+def account_cell(item):
     """The account column: 'Kesh' normally, 'Kesh -> Banka' for a transfer."""
-    if transaction.lloji == TRANSFER:
-        return (
-            f"{account_display(transaction.llogaria)} -> "
-            f"{account_display(transaction.llogaria_dest)}"
-        )
-    return account_display(transaction.llogaria)
+    if item.kind == TRANSFER:
+        return f"{account_display(item.account)} -> {account_display(item.to_account)}"
+    return account_display(item.account)
 
 
 def subcategory_display(value):
@@ -56,11 +52,11 @@ def subcategory_display(value):
     return value or t("no_subcategory_display")
 
 
-def category_path(transaction):
+def category_path(item):
     """'Ushqim / Dyqan', or just 'Ushqim' when there is no subcategory."""
-    if transaction.nenkategoria:
-        return f"{category_display(transaction.kategoria)} / {transaction.nenkategoria}"
-    return category_display(transaction.kategoria)
+    if item.subcategory:
+        return f"{category_display(item.category)} / {item.subcategory}"
+    return category_display(item.category)
 
 
 def money(amount):
@@ -80,16 +76,16 @@ def print_transactions(numbered, title=None):
         print(paint(f"\n{t('no_transactions')}", YELLOW))
         return
 
-    labels = {n: type_label(x.lloji) for n, x in numbered}
-    amounts = {n: money(x.shuma) for n, x in numbered}
+    labels = {n: type_label(x.kind) for n, x in numbered}
+    amounts = {n: money(x.amount) for n, x in numbered}
 
     # Only show the subcategory column when something actually uses it, so
     # users who don't need subcategories don't get a column of dashes.
     show_sub = has_subcategories(x for _, x in numbered)
-    subs = {n: subcategory_display(x.nenkategoria) for n, x in numbered}
+    subs = {n: subcategory_display(x.subcategory) for n, x in numbered}
 
     # Same rule for accounts: the column appears only once something uses one.
-    show_account = any(x.llogaria or x.llogaria_dest for _, x in numbered)
+    show_account = any(x.account or x.to_account for _, x in numbered)
     accounts = {n: account_cell(x) for n, x in numbered}
 
     head_num = t("field_number")
@@ -104,8 +100,8 @@ def print_transactions(numbered, title=None):
     w_num = max(len(head_num) + 1, len(str(max(n for n, _ in numbered))) + 1)
     w_date = max(len(head_date), 10)
     w_type = max([len(head_type)] + [len(v) for v in labels.values()])
-    w_desc = max([len(head_desc)] + [len(x.pershkrimi) for _, x in numbered])
-    categories = {n: category_display(x.kategoria) for n, x in numbered}
+    w_desc = max([len(head_desc)] + [len(x.description) for _, x in numbered])
+    categories = {n: category_display(x.category) for n, x in numbered}
     w_cat = max([len(head_cat)] + [len(v) for v in categories.values()])
     w_sub = max([len(head_sub)] + [len(v) for v in subs.values()]) if show_sub else 0
     w_account = (
@@ -136,11 +132,11 @@ def print_transactions(numbered, title=None):
         sub_cell = f"{subs[number]:<{w_sub}} " if show_sub else ""
         account_cell_text = f"{accounts[number]:<{w_account}} " if show_account else ""
         line = (
-            f"{number:<{w_num}}{x.data:<{w_date}} {labels[number]:<{w_type}} "
-            f"{x.pershkrimi:<{w_desc}} {categories[number]:<{w_cat}} "
+            f"{number:<{w_num}}{x.occurred_on:<{w_date}} {labels[number]:<{w_type}} "
+            f"{x.description:<{w_desc}} {categories[number]:<{w_cat}} "
             f"{sub_cell}{account_cell_text}{amounts[number]:>{w_amount}}"
         )
-        print(paint(line, type_color(x.lloji)))
+        print(paint(line, type_color(x.kind)))
     print("-" * total)
 
 
@@ -166,7 +162,9 @@ def print_category_breakdown(transactions, trans_type):
     for category, total in rows:
         sub_rows = totals_by_subcategory(transactions, trans_type, category)
         # Nothing worth nesting if every amount sits directly in the category.
-        if len(sub_rows) == 1 and sub_rows[0][0] == "":
+        # Nothing worth nesting if every amount sits directly in the
+        # category. That is now None rather than an empty string.
+        if len(sub_rows) == 1 and sub_rows[0][0] is None:
             sub_rows = []
         printable.append((category, total, sub_rows))
 
@@ -261,10 +259,11 @@ def print_budgets(statuses, year, month):
         print(paint(t("no_budgets"), YELLOW))
         return
 
-    w_cat = max([len(t("field_category"))] + [len(s.category) for s in statuses])
-    spent_strs = {s.category: money(s.spent) for s in statuses}
-    limit_strs = {s.category: money(s.limit) for s in statuses}
-    left_strs = {s.category: money(s.remaining) for s in statuses}
+    labels = {s.category_id: category_display(s.category) for s in statuses}
+    w_cat = max([len(t("field_category"))] + [len(v) for v in labels.values()])
+    spent_strs = {s.category_id: money(s.spent) for s in statuses}
+    limit_strs = {s.category_id: money(s.limit) for s in statuses}
+    left_strs = {s.category_id: money(s.remaining) for s in statuses}
     w_spent = max([len(t("budget_spent"))] + [len(v) for v in spent_strs.values()])
     w_limit = max([len(t("budget_limit"))] + [len(v) for v in limit_strs.values()])
     w_left = max([len(t("budget_left"))] + [len(v) for v in left_strs.values()])
@@ -286,10 +285,10 @@ def print_budgets(statuses, year, month):
         bar = usage_bar(status.fraction_used)
         percent = f"{status.percent_used:.0f}%"
         line = (
-            f"{i:<4}{status.category:<{w_cat}}  "
-            f"{spent_strs[status.category]:>{w_spent}}  "
-            f"{limit_strs[status.category]:>{w_limit}}  "
-            f"{left_strs[status.category]:>{w_left}}  {bar} {percent:>5}"
+            f"{i:<4}{labels[status.category_id]:<{w_cat}}  "
+            f"{spent_strs[status.category_id]:>{w_spent}}  "
+            f"{limit_strs[status.category_id]:>{w_limit}}  "
+            f"{left_strs[status.category_id]:>{w_left}}  {bar} {percent:>5}"
         )
         print(paint(line, budget_state_color(status.state)))
     print("-" * total)
@@ -310,7 +309,11 @@ def print_budget_warning(status):
     if status.state == OVER:
         print(
             paint(
-                t("budget_over", category=status.category, amount=money(status.overspent)),
+                t(
+                    "budget_over",
+                    category=category_display(status.category),
+                    amount=money(status.overspent),
+                ),
                 BOLD,
                 RED,
             )
@@ -318,29 +321,43 @@ def print_budget_warning(status):
     else:
         print(
             paint(
-                t("budget_near", percent=f"{status.percent_used:.0f}", category=status.category),
+                t(
+                    "budget_near",
+                    percent=f"{status.percent_used:.0f}",
+                    category=category_display(status.category),
+                ),
                 YELLOW,
             )
         )
 
 
-def print_recurring(rules, as_of):
-    """Print every recurring rule with its next scheduled date."""
+def print_recurring(rules, as_of, category_names=None, account_names=None):
+    """Print every recurring rule with its next scheduled date.
+
+    A rule holds ids, not names - it comes back as a model rather than a joined
+    view - so the caller passes the lookups. That keeps the display free of
+    database access.
+    """
     if not rules:
         print(paint(f"\n{t('no_recurring')}", YELLOW))
         return
 
-    labels = [type_label(r.lloji) for r in rules]
-    freqs = [frequency_label(r.frekuenca) for r in rules]
-    amounts = [money(r.shuma) for r in rules]
+    category_names = category_names or {}
+    account_names = account_names or {}
+
+    labels = [type_label(r.kind) for r in rules]
+    freqs = [frequency_label(r.frequency) for r in rules]
+    amounts = [money(r.amount) for r in rules]
+    paths = [category_display(category_names.get(r.category_id)) for r in rules]
+    accts = [account_display(account_names.get(r.account_id)) for r in rules]
 
     w_type = max([len(t("field_type"))] + [len(v) for v in labels])
-    w_desc = max([len(t("field_description"))] + [len(r.pershkrimi) for r in rules])
-    paths = [category_path(r) for r in rules]
+    w_desc = max([len(t("field_description"))] + [len(r.description) for r in rules])
     w_cat = max([len(t("field_category"))] + [len(v) for v in paths])
+    w_acct = max([len(t("field_account"))] + [len(v) for v in accts])
     w_freq = max([len(t("field_frequency"))] + [len(v) for v in freqs])
     w_amount = max([len(t("field_amount"))] + [len(v) for v in amounts])
-    total = 4 + w_type + 1 + w_desc + 1 + w_cat + 1 + w_freq + 1 + w_amount
+    total = 4 + w_type + 1 + w_desc + 1 + w_cat + 1 + w_acct + 1 + w_freq + 1 + w_amount
 
     print(paint(f"\n{t('recurring_title')}", BOLD, CYAN))
     print("-" * total)
@@ -348,6 +365,7 @@ def print_recurring(rules, as_of):
         paint(
             f"{'#':<4}{t('field_type'):<{w_type}} "
             f"{t('field_description'):<{w_desc}} {t('field_category'):<{w_cat}} "
+            f"{t('field_account'):<{w_acct}} "
             f"{t('field_frequency'):<{w_freq}} {t('field_amount'):>{w_amount}}",
             BOLD,
         )
@@ -355,15 +373,13 @@ def print_recurring(rules, as_of):
     print("-" * total)
     for i, rule in enumerate(rules, start=1):
         line = (
-            f"{i:<4}{labels[i - 1]:<{w_type}} {rule.pershkrimi:<{w_desc}} "
-            f"{paths[i - 1]:<{w_cat}} {freqs[i - 1]:<{w_freq}} "
-            f"{amounts[i - 1]:>{w_amount}}"
+            f"{i:<4}{labels[i - 1]:<{w_type}} {rule.description:<{w_desc}} "
+            f"{paths[i - 1]:<{w_cat}} {accts[i - 1]:<{w_acct}} "
+            f"{freqs[i - 1]:<{w_freq}} {amounts[i - 1]:>{w_amount}}"
         )
-        print(paint(line, type_color(rule.lloji)))
-        upcoming = next_occurrence(rule, as_of)
+        print(paint(line, type_color(rule.kind)))
+        upcoming = next_occurrence(rule)
         if upcoming is not None:
-            from .dates import format_date
-
             print(paint(f"    {t('next_occurrence', date=format_date(upcoming))}", DIM))
     print("-" * total)
 
@@ -375,7 +391,7 @@ def print_accounts(balances, show_total=True):
         return
 
     names = [account_display(b.name) for b in balances]
-    types = [b.account_type for b in balances]
+    types = [b.kind for b in balances]
     openings = [money(b.opening) for b in balances]
     totals = [money(b.balance) for b in balances]
 
@@ -411,7 +427,7 @@ def print_accounts(balances, show_total=True):
             number += 1
             label = str(number)
         line = (
-            f"{label:<4}{account_display(item.name):<{w_name}}  {item.account_type:<{w_type}}  "
+            f"{label:<4}{account_display(item.name):<{w_name}}  {item.kind:<{w_type}}  "
             f"{openings[position]:>{w_opening}}  {totals[position]:>{w_balance}}"
         )
         print(paint(line, amount_color(item.balance)))

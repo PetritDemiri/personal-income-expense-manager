@@ -1,7 +1,7 @@
 """Rreshti i komandes / Command-line interface.
 
-Albanian flags are primary; English aliases are accepted for all of them.
-With no flags at all, the interactive menu runs.
+Albanian flags are primary; English aliases are accepted for all of them. With
+no flags at all, the interactive menu runs.
 """
 
 import argparse
@@ -10,19 +10,12 @@ import sys
 from decimal import Decimal, InvalidOperation
 
 from . import colors
-from .accounts import balances_for, filter_by_account, find_account
+from .accounts import balances_for, count_unassigned, find_account
 from .app import FinanceApp
-from .budgets import all_statuses, check_after_adding
-from .colors import BOLD, DIM, RED, YELLOW, paint
-from .config import ACCOUNT_TYPES, DEFAULT_CATEGORY, EXPENSE, INCOME, TRANSFER
-from .dates import (
-    current_date_str,
-    format_date,
-    month_of,
-    parse_date,
-    parse_month,
-    today,
-)
+from .budgets import all_statuses
+from .colors import BOLD, RED, YELLOW, paint
+from .config import DATABASE_FILE, data_path
+from .dates import current_date_str, format_date, month_of, parse_date, parse_month, today
 from .display import (
     print_accounts,
     print_budget_warning,
@@ -33,21 +26,15 @@ from .display import (
     print_transactions,
 )
 from .i18n import set_language, t, type_label
-from .models import parse_amount
-from .reports import (
-    calculate_totals,
-    filter_by_dates,
-    month_report,
-    search,
-    sort_by_date,
-)
+from .models import ACCOUNT_KINDS, parse_amount
+from .reports import calculate_totals, month_report, sort_by_date
+from .schema import EXPENSE, INCOME, TRANSFER
 from .ui import numbered, run_menu
 
 # Every flag that performs an action. Any of these means flag mode rather than
 # the interactive menu. Kept in one place because it was previously spelled out
-# inline in main() and drifted twice: a new action flag was added without being
-# listed here, so start-up notices leaked into scripted output. There is a test
-# asserting this matches the parser's action group exactly.
+# inline and drifted twice, letting start-up notices leak into scripted output.
+# A test asserts this matches the parser's action group exactly.
 ACTION_FLAGS = (
     "lista",
     "gjendja",
@@ -68,10 +55,7 @@ ACTION_FLAGS = (
 
 
 def action_flag_dests(parser):
-    """The dest names in the parser's action group.
-
-    Used by the test that keeps ACTION_FLAGS honest.
-    """
+    """The dest names in the parser's action group, for the sync test."""
     for group in parser._action_groups:
         if group.title and group.title.startswith("veprimet"):
             return tuple(action.dest for action in group._group_actions)
@@ -86,19 +70,17 @@ def build_parser():
         "Pa asnje flamur, hapet menuja interaktive.",
         epilog="Shembuj / Examples:\n"
         "  %(prog)s --lista\n"
-        "  %(prog)s --lista --data 05-08-2026\n"
         "  %(prog)s --lista --nga 01-08-2026 --deri 31-08-2026\n"
         "  %(prog)s --kerko ushqim\n"
         "  %(prog)s --raporti --muaji 07-2026\n"
-        "  %(prog)s --buxhetet\n"
         '  %(prog)s --shto-shpenzime --pershkrimi "Qera" --shuma 300 '
         "--kategoria Qera\n"
-        "  %(prog)s --gjuha en --gjendja\n",
+        "  %(prog)s --eksporto transaksionet.csv\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.add_argument(
-        "--ndihma", action="help", help="Shfaq kete mesazh ndihme dhe dil / show this help"
+        "--ndihma", action="help", help="Shfaq kete mesazh ndihme dhe dil / show help"
     )
 
     actions = parser.add_argument_group("veprimet / actions")
@@ -155,18 +137,10 @@ def build_parser():
         "--kerko", "--search", metavar="TERMI", help="Kerko ne pershkrim ose kategori / search"
     )
     actions.add_argument(
-        "--eksporto",
-        "--export",
-        dest="eksporto",
-        metavar="SKEDARI",
-        help="Eksporto transaksionet ne nje skedar CSV; kombinohet me filtrat "
-        "--data, --nga/--deri, --kerko, --llogaria / export to CSV",
-    )
-    actions.add_argument(
         "--llogarite",
         "--accounts",
         action="store_true",
-        help="Shfaq gjendjen e secilës llogari / show per-account balances",
+        help="Shfaq gjendjen e secilës llogari / per-account balances",
     )
     actions.add_argument(
         "--shto-llogari",
@@ -174,16 +148,14 @@ def build_parser():
         dest="shto_llogari",
         nargs=3,
         metavar=("EMRI", "LLOJI", "GJENDJA"),
-        help="Shto nje llogari: emri, lloji (Kesh/Banke/Karte), gjendja fillestare "
-        "/ add an account",
+        help="Shto nje llogari / add an account",
     )
     actions.add_argument(
         "--cakto-pa-llogari",
         "--assign-unassigned",
         dest="cakto_pa_llogari",
         metavar="EMRI",
-        help="Cakto te gjitha transaksionet pa llogari te kjo llogari "
-        "/ assign every account-less transaction to this account",
+        help="Cakto transaksionet pa llogari / assign account-less rows",
     )
     actions.add_argument(
         "--transfero",
@@ -191,41 +163,33 @@ def build_parser():
         dest="transfero",
         nargs=2,
         metavar=("NGA", "TEK"),
-        help="Transfero mes dy llogarive; kombinoje me --shuma, --pershkrimi, "
-        "--data / transfer between accounts",
+        help="Transfero mes dy llogarive / transfer between accounts",
+    )
+    actions.add_argument(
+        "--eksporto",
+        "--export",
+        dest="eksporto",
+        metavar="SKEDARI",
+        help="Eksporto ne nje skedar CSV / export to CSV",
     )
 
     fields = parser.add_argument_group("fushat dhe filtrat / fields and filters")
-    fields.add_argument(
-        "--pershkrimi", "--description", help="Pershkrimi i transaksionit te ri / description"
-    )
-    fields.add_argument("--shuma", "--amount", help="Shuma e transaksionit te ri / amount")
-    fields.add_argument(
-        "--data",
-        "--date",
-        help="Data (dite-muaj-Vit). Me --lista filtron nje date; me --shto-* cakton daten / date",
-    )
-    fields.add_argument(
-        "--kategoria", "--category", help="Kategoria e transaksionit te ri / category"
-    )
-    fields.add_argument(
-        "--nenkategoria",
-        "--subcategory",
-        help="Nenkategoria e transaksionit te ri / subcategory (optional)",
-    )
-    fields.add_argument(
-        "--llogaria",
-        "--account",
-        help="Llogaria e transaksionit te ri, ose filtro sipas llogarise / account",
-    )
-    fields.add_argument(
-        "--nga", "--from", dest="nga", help="Data e fillimit e filtrit / filter start (inclusive)"
-    )
-    fields.add_argument(
-        "--deri", "--to", dest="deri", help="Data e mbarimit e filtrit / filter end (inclusive)"
-    )
-    fields.add_argument(
-        "--muaji", "--month", help="Muaji per raportin (muaj-Vit) / month for the report"
+    fields.add_argument("--pershkrimi", "--description", help="Pershkrimi / description")
+    fields.add_argument("--shuma", "--amount", help="Shuma / amount")
+    fields.add_argument("--data", "--date", help="Data (dite-muaj-Vit) / date")
+    fields.add_argument("--kategoria", "--category", help="Kategoria / category")
+    fields.add_argument("--nenkategoria", "--subcategory", help="Nenkategoria / subcategory")
+    fields.add_argument("--llogaria", "--account", help="Llogaria / account")
+    fields.add_argument("--nga", "--from", dest="nga", help="Data e fillimit / filter start")
+    fields.add_argument("--deri", "--to", dest="deri", help="Data e mbarimit / filter end")
+    fields.add_argument("--muaji", "--month", help="Muaji (muaj-Vit) / month")
+
+    storage = parser.add_argument_group("ruajtja / storage")
+    storage.add_argument(
+        "--baza",
+        "--database",
+        dest="baza",
+        help="Shtegu i bazes se te dhenave / path to the database",
     )
 
     output = parser.add_argument_group("dalja / output")
@@ -235,29 +199,14 @@ def build_parser():
         dest="gjuha",
         choices=["sq", "en"],
         default="sq",
-        help="Gjuha e nderfaqes / interface language (default: sq)",
+        help="Gjuha e nderfaqes / interface language",
     )
-    storage_group = parser.add_argument_group("ruajtja / storage")
-    storage_group.add_argument(
-        "--csv",
-        action="store_true",
-        help="Perdor skedaret CSV ne vend te bazes se te dhenave / use CSV files "
-        "instead of the database",
-    )
-    storage_group.add_argument(
-        "--baza",
-        "--database",
-        dest="baza",
-        help="Shtegu i bazes se te dhenave / path to the database file",
-    )
-
     output.add_argument(
         "--ndares",
         "--delimiter",
         dest="ndares",
         default=",",
-        help="Ndaresi i kolonave per eksportim: , ose ; ose | (parazgjedhje: ,) "
-        "/ column delimiter for export",
+        help="Ndaresi i kolonave per eksportim / export delimiter",
     )
     output.add_argument(
         "--pa-ngjyra",
@@ -270,8 +219,13 @@ def build_parser():
     return parser
 
 
+# ---------------------------------------------------------------------------
+# Filters
+# ---------------------------------------------------------------------------
+
+
 def resolve_filter_dates(args):
-    """Turn the filter flags into a (start, end, title, ok) tuple."""
+    """Turn the filter flags into (start, end, title, ok)."""
     if args.data:
         target = parse_date(args.data)
         if target is None:
@@ -305,7 +259,36 @@ def resolve_filter_dates(args):
     return start, end, title, True
 
 
-def do_add(app, args, trans_type):
+def selected_transactions(app, args):
+    """Apply the filter flags in SQL. Returns (rows, title, ok).
+
+    Shared by --lista and --eksporto so a filter selects the same set however
+    it is used.
+    """
+    start, end, title, ok = resolve_filter_dates(args)
+    if not ok:
+        return [], None, False
+
+    filters = {"start": start, "end": end}
+    if args.kerko:
+        filters["search"] = args.kerko
+    if args.llogaria:
+        matched = find_account(app.accounts(), args.llogaria)
+        if matched is None:
+            print(paint(t("unknown_account", name=args.llogaria), RED))
+            return [], None, False
+        filters["account_id"] = matched.id
+        title = f"{title} [{matched.name}]"
+
+    return app.transactions(**filters), title, True
+
+
+# ---------------------------------------------------------------------------
+# Actions
+# ---------------------------------------------------------------------------
+
+
+def do_add(app, args, kind):
     """Add a transaction from flags, prompting for anything not supplied."""
     from .ui import (
         prompt_account,
@@ -336,79 +319,60 @@ def do_add(app, args, trans_type):
         if parse_date(args.data) is None:
             print(paint(t("invalid_date"), RED))
             return False
-        date = args.data.strip()
+        occurred_on = args.data.strip()
     else:
-        date = prompt_date()
+        occurred_on = prompt_date()
 
     if args.kategoria is not None:
-        category = args.kategoria.strip() or DEFAULT_CATEGORY
+        category = args.kategoria.strip() or None
     else:
-        category = prompt_category(app.categories_for(trans_type))
+        category = prompt_category(app, kind)
 
-    # An omitted --nenkategoria with --kategoria given means "no subcategory",
-    # so a fully-flagged invocation stays non-interactive.
+    # An omitted --nenkategoria alongside --kategoria means "none", so a fully
+    # flagged invocation stays non-interactive.
     if args.nenkategoria is not None:
-        subcategory = args.nenkategoria.strip()
+        subcategory = args.nenkategoria.strip() or None
     elif args.kategoria is not None:
-        subcategory = ""
+        subcategory = None
     else:
-        subcategory = prompt_subcategory(app, trans_type, category)
+        subcategory = prompt_subcategory(app, kind, category)
 
     if args.llogaria is not None:
         requested = args.llogaria.strip()
-        matched = find_account(app.accounts, requested)
+        matched = find_account(app.accounts(), requested)
         if requested and matched is None:
             print(paint(t("unknown_account", name=requested), RED))
             return False
-        # Normalised to the stored spelling, so "banka" and "Banka" do not
-        # become two accounts.
-        account = matched.emri if matched else ""
+        account_id = matched.id if matched else None
     elif app.has_accounts():
-        account = prompt_account(app)
+        account_id = prompt_account(app)
     else:
-        account = ""
+        account_id = None
 
     transaction = app.add_transaction(
-        trans_type, description, amount, date, category, subcategory, account
+        kind, description, amount, occurred_on, category, subcategory, account_id
     )
-    print(paint(t("added", type=type_label(trans_type)), BOLD))
-    print_budget_warning(check_after_adding(app.budgets, app.transactions, transaction))
+    print(paint(t("added", type=type_label(kind)), BOLD))
+    print_budget_warning(app.budget_warning(transaction))
     return True
 
 
-def do_set_budget(app, args):
-    category, raw_amount = args.cakto_buxhet
-    amount = parse_amount(raw_amount)
-    if amount is None or amount == 0:
-        print(paint(t("invalid_amount"), RED))
-        return
-    app.set_budget(category.strip(), amount)
-    print(paint(t("budget_saved", category=category.strip()), BOLD))
-
-
 def do_add_account(app, args):
-    """Create an account from flags."""
-    name, account_type, opening_raw = args.shto_llogari
+    name, kind, opening_raw = args.shto_llogari
     name = name.strip()
 
     if not name:
         print(paint(t("empty_description"), RED))
         return
-    if find_account(app.accounts, name) is not None:
+    if app.account_by_name(name) is not None:
         print(paint(t("account_exists"), RED))
         return
 
-    # Matched case-insensitively so "banke" works, then stored in the
-    # canonical spelling.
-    matched_type = next(
-        (x for x in ACCOUNT_TYPES if x.casefold() == account_type.strip().casefold()),
-        None,
-    )
-    if matched_type is None:
-        print(paint(t("invalid_account_type", types=", ".join(ACCOUNT_TYPES)), RED))
+    matched_kind = next((k for k in ACCOUNT_KINDS if k.casefold() == kind.strip().casefold()), None)
+    if matched_kind is None:
+        print(paint(t("invalid_account_type", types=", ".join(ACCOUNT_KINDS)), RED))
         return
 
-    # An opening balance may be negative, so parse_amount is not used here.
     try:
         opening = Decimal(opening_raw.strip())
         if not opening.is_finite():
@@ -417,49 +381,27 @@ def do_add_account(app, args):
         print(paint(t("invalid_opening"), RED))
         return
 
-    app.add_account(name, matched_type, opening)
+    app.add_account(name, matched_kind, opening)
     print(paint(t("account_added", name=name), BOLD))
 
 
-def do_assign_unassigned(app, args):
-    """Assign every account-less transaction and rule to a named account."""
-    from .accounts import count_unassigned
-
-    target = find_account(app.accounts, args.cakto_pa_llogari)
-    if target is None:
-        print(paint(t("unknown_account", name=args.cakto_pa_llogari), RED))
-        return
-
-    if not count_unassigned(app.transactions, app.recurring_rules):
-        print(paint(t("nothing_unassigned"), YELLOW))
-        return
-
-    assigned, skipped = app.assign_unassigned_to(target.emri)
-    print(paint(t("assigned", count=assigned, name=target.emri), BOLD))
-    if skipped:
-        print(paint(t("assign_skipped", count=skipped), YELLOW))
-
-
 def do_transfer(app, args):
-    """Record a transfer between two accounts from flags."""
-    source_raw, dest_raw = args.transfero
+    source_raw, destination_raw = args.transfero
+    accounts = app.accounts()
 
-    source = find_account(app.accounts, source_raw)
-    destination = find_account(app.accounts, dest_raw)
+    source = find_account(accounts, source_raw)
     if source is None:
         print(paint(t("unknown_account", name=source_raw), RED))
         return
+    destination = find_account(accounts, destination_raw)
     if destination is None:
-        print(paint(t("unknown_account", name=dest_raw), RED))
+        print(paint(t("unknown_account", name=destination_raw), RED))
         return
-    if source.emri == destination.emri:
+    if source.id == destination.id:
         print(paint(t("same_account"), RED))
         return
 
-    if args.shuma is None:
-        print(paint(t("invalid_amount"), RED))
-        return
-    amount = parse_amount(args.shuma)
+    amount = parse_amount(args.shuma) if args.shuma is not None else None
     if amount is None:
         print(paint(t("invalid_amount"), RED))
         return
@@ -470,59 +412,52 @@ def do_transfer(app, args):
         if parse_date(args.data) is None:
             print(paint(t("invalid_date"), RED))
             return
-        date = args.data.strip()
+        occurred_on = args.data.strip()
     else:
-        date = current_date_str()
+        occurred_on = current_date_str()
 
     app.add_transaction(
         TRANSFER,
         description,
         amount,
-        date,
-        category=DEFAULT_CATEGORY,
-        subcategory="",
-        account=source.emri,
-        destination=destination.emri,
+        occurred_on,
+        account_id=source.id,
+        to_account_id=destination.id,
     )
     print(paint(t("transfer_added"), BOLD))
 
 
-def selected_transactions(app, args):
-    """Apply whichever filter flags were given. Returns (rows, ok).
+def do_assign_unassigned(app, args):
+    target = app.account_by_name(args.cakto_pa_llogari)
+    if target is None:
+        print(paint(t("unknown_account", name=args.cakto_pa_llogari), RED))
+        return
+    if not count_unassigned(app.transactions(), app.recurring_rules()):
+        print(paint(t("nothing_unassigned"), YELLOW))
+        return
+    assigned = app.assign_unassigned_to(target.id)
+    print(paint(t("assigned", count=assigned, name=target.name), BOLD))
 
-    Shared by --lista and --eksporto so a filter always selects the same set
-    however it is used.
-    """
-    start, end, _title, ok = resolve_filter_dates(args)
-    if not ok:
-        return [], False
 
-    rows = filter_by_dates(app.transactions, start, end)
-
-    if args.kerko:
-        rows = search(rows, args.kerko)
-
-    if args.llogaria:
-        matched = find_account(app.accounts, args.llogaria)
-        if matched is None:
-            print(paint(t("unknown_account", name=args.llogaria), RED))
-            return [], False
-        rows = filter_by_account(rows, matched.emri)
-
-    return sort_by_date(rows), True
+def do_set_budget(app, args):
+    category, raw_amount = args.cakto_buxhet
+    amount = parse_amount(raw_amount, allow_zero=False)
+    if amount is None:
+        print(paint(t("invalid_amount"), RED))
+        return
+    app.set_budget(category.strip(), amount)
+    print(paint(t("budget_saved", category=category.strip()), BOLD))
 
 
 def do_export(app, args):
-    """Write the selected transactions to a CSV file."""
     from .export import ALLOWED_DELIMITERS, export_transactions
 
-    delimiter = args.ndares
-    if delimiter not in ALLOWED_DELIMITERS:
+    if args.ndares not in ALLOWED_DELIMITERS:
         readable = ", ".join(d if d != "\t" else "tab" for d in ALLOWED_DELIMITERS)
         print(paint(t("invalid_delimiter", allowed=readable), RED))
         return
 
-    rows, ok = selected_transactions(app, args)
+    rows, _title, ok = selected_transactions(app, args)
     if not ok:
         return
     if not rows:
@@ -530,12 +465,12 @@ def do_export(app, args):
         return
 
     try:
-        count, written_to = export_transactions(args.eksporto, rows, delimiter=delimiter)
+        count, written_to = export_transactions(
+            args.eksporto, sort_by_date(rows), delimiter=args.ndares
+        )
     except Exception as error:
         print(paint(t("export_failed", error=error), RED))
         return
-    # The resolved path, not what was typed - a bare filename gives no clue
-    # where the file actually landed.
     print(paint(t("exported", count=count, path=written_to), BOLD))
 
 
@@ -548,7 +483,7 @@ def do_report(app, args):
         year, month = parsed
     else:
         year, month = month_of(today())
-    print_monthly_report(month_report(app.transactions, year, month))
+    print_monthly_report(month_report(app.transactions(), year, month))
 
 
 def run_cli(app, args):
@@ -563,10 +498,6 @@ def run_cli(app, args):
             print(t("nothing_due"))
         did_something = True
 
-    if args.cakto_buxhet:
-        do_set_budget(app, args)
-        did_something = True
-
     if args.shto_llogari:
         do_add_account(app, args)
         did_something = True
@@ -579,6 +510,10 @@ def run_cli(app, args):
         do_transfer(app, args)
         did_something = True
 
+    if args.cakto_buxhet:
+        do_set_budget(app, args)
+        did_something = True
+
     if args.shto_te_ardhura or args.shto_shpenzime:
         do_add(app, args, INCOME if args.shto_te_ardhura else EXPENSE)
         did_something = True
@@ -588,43 +523,45 @@ def run_cli(app, args):
         did_something = True
 
     if args.kerko and not args.eksporto:
-        matches = sort_by_date(search(app.transactions, args.kerko))
-        print_transactions(
-            numbered(app.transactions, matches), t("transactions_matching", term=args.kerko)
-        )
-        if matches:
-            print_summary(matches, calculate_totals(matches), t("filter_totals"))
+        rows, title, ok = selected_transactions(app, args)
+        if ok:
+            print_transactions(
+                numbered(app.transactions(), rows),
+                t("transactions_matching", term=args.kerko),
+            )
+            if rows:
+                print_summary(rows, calculate_totals(rows), t("filter_totals"))
         did_something = True
 
     if args.lista:
-        start, end, title, ok = resolve_filter_dates(args)
+        rows, title, ok = selected_transactions(app, args)
         if not ok:
             return True
-        matches = filter_by_dates(app.transactions, start, end)
-        if args.llogaria:
-            matched_account = find_account(app.accounts, args.llogaria)
-            if matched_account is None:
-                print(paint(t("unknown_account", name=args.llogaria), RED))
-                return True
-            matches = filter_by_account(matches, matched_account.emri)
-            title = f"{title} [{matched_account.emri}]"
-        matches = sort_by_date(matches)
-        print_transactions(numbered(app.transactions, matches), title)
-        if matches and (start or end):
-            print_summary(matches, calculate_totals(matches), t("filter_totals"))
+        print_transactions(numbered(app.transactions(), rows), title)
+        if rows and (args.nga or args.deri or args.data or args.llogaria):
+            print_summary(rows, calculate_totals(rows), t("filter_totals"))
         did_something = True
 
     if args.perseritjet:
-        print_recurring(app.recurring_rules, today())
+        print_recurring(
+            app.recurring_rules(),
+            today(),
+            app.category_name_map(),
+            {a.id: a.name for a in app.accounts()},
+        )
         did_something = True
 
     if args.llogarite:
-        print_accounts(balances_for(app.accounts, app.transactions))
+        print_accounts(balances_for(app.accounts(), app.transactions()))
         did_something = True
 
     if args.buxhetet:
         year, month = month_of(today())
-        print_budgets(all_statuses(app.budgets, app.transactions, year, month), year, month)
+        print_budgets(
+            all_statuses(app.budgets(), app.category_name_map(), app.transactions(), year, month),
+            year,
+            month,
+        )
         did_something = True
 
     if args.raporti:
@@ -632,52 +569,13 @@ def run_cli(app, args):
         did_something = True
 
     if args.gjendja:
-        print_summary(app.transactions, calculate_totals(app.transactions))
+        rows = app.transactions()
+        print_summary(rows, calculate_totals(rows))
+        if app.has_accounts():
+            print_accounts(balances_for(app.accounts(), rows))
         did_something = True
 
     return did_something
-
-
-def build_storage(args, quiet=False):
-    """Pick the backend and, the first time, move existing CSV data into it.
-
-    Returns (storage, migrated_count). The CSV files are left untouched, so the
-    move is reversible: --csv goes straight back to them.
-    """
-    from .storage import CsvStorage
-
-    if args.csv:
-        return CsvStorage(), 0
-
-    from .sqlite_storage import SqliteStorage
-
-    storage = SqliteStorage(database_file=args.baza)
-    migrated = 0
-
-    # Only ever on a brand-new, still-empty database, so this cannot overwrite
-    # data already in the database or run twice.
-    if storage.created and storage.is_empty():
-        csv_storage = CsvStorage()
-        if any(
-            os.path.exists(path)
-            for path in (
-                csv_storage.transactions_file,
-                csv_storage.recurring_file,
-                csv_storage.budgets_file,
-            )
-        ):
-            try:
-                migrated = storage.import_from(csv_storage)
-                # Always announced, even in flag mode. Routine load/save
-                # notices are noise worth suppressing; a one-time move of the
-                # user's data to a new place is not.
-                if migrated:
-                    print(paint(t("migrated", count=migrated, file=storage.location), BOLD))
-                    print(paint(t("csv_kept"), DIM))
-            except Exception as error:
-                print(paint(t("migrate_failed", error=error), RED))
-
-    return storage, migrated
 
 
 def main(argv=None):
@@ -688,16 +586,11 @@ def main(argv=None):
     set_language(args.gjuha)
     colors.configure(force_off=args.pa_ngjyra)
 
-    # The menu prints its own load notice; flag mode stays quiet unless
-    # something goes wrong.
     interactive = not any(getattr(args, name, None) for name in ACTION_FLAGS)
-
-    storage, migrated = build_storage(args, quiet=not interactive)
-    app = FinanceApp(storage=storage, quiet=not interactive)
-    app.load()
+    app = FinanceApp(path=args.baza or data_path(DATABASE_FILE), quiet=not interactive)
 
     # Catch up on anything due since the last run. --perserit reports the same
-    # work in full, so skip the quiet pass in that case.
+    # work in full, so the quiet pass is skipped in that case.
     if not args.perserit:
         generated = app.process_recurring()
         if generated and interactive:
@@ -713,10 +606,11 @@ def main(argv=None):
     except BrokenPipeError:
         # Whatever was reading the output closed the pipe first - piping into
         # `head` does this. Point stdout at the null device so the interpreter
-        # does not print its own warning while shutting down, then exit with
-        # the conventional 128 + SIGPIPE.
+        # does not warn while shutting down.
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 141
+    finally:
+        app.close()
     return 0
 
 

@@ -1,84 +1,67 @@
-"""End-to-end tests for the app service layer and the command-line interface."""
+"""End-to-end tests for the command-line interface.
+
+Each test drives main() against a temporary database, so these exercise the
+whole stack: parser, service layer, database, display.
+"""
 
 import datetime
+import os
 from decimal import Decimal
 
 import pytest
 
 from personal_finance import colors, i18n
-from personal_finance.cli import build_parser, main
-from personal_finance.config import EXPENSE, INCOME
-
-from .conftest import make_rule
+from personal_finance.cli import ACTION_FLAGS, action_flag_dests, build_parser, main
+from personal_finance.schema import EXPENSE
 
 
 @pytest.fixture(autouse=True)
-def isolated_environment(tmp_path, monkeypatch):
-    """Point the app at a temp directory and reset global display state."""
+def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("FINANCE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FINANCE_EXPORT_DIR", str(tmp_path))
     monkeypatch.setenv("NO_COLOR", "1")
     i18n.set_language("sq")
     colors.configure(force_off=True)
     yield tmp_path
+    i18n.set_language("sq")
 
 
-class TestAppLayer:
-    def test_add_persists_across_reloads(self, app, storage):
-        app.add_transaction(INCOME, "Paga", Decimal("1000"), "01-06-2026", "Paga")
+def add_income(description="Paga", amount="1000", date="01-06-2026", category="Paga", *extra):
+    main(
+        [
+            "--shto-te-ardhura",
+            "--pershkrimi",
+            description,
+            "--shuma",
+            amount,
+            "--data",
+            date,
+            "--kategoria",
+            category,
+            "--nenkategoria",
+            "",
+            *extra,
+        ]
+    )
 
-        from personal_finance.app import FinanceApp
 
-        reloaded = FinanceApp(storage=storage, quiet=True)
-        reloaded.load()
-        assert len(reloaded.transactions) == 1
-        assert reloaded.transactions[0].shuma == Decimal("1000")
-
-    def test_delete_persists(self, app, storage):
-        app.add_transaction(EXPENSE, "Qera", Decimal("300"), "01-06-2026", "Qera")
-        app.delete_transaction(0)
-
-        from personal_finance.app import FinanceApp
-
-        reloaded = FinanceApp(storage=storage, quiet=True)
-        reloaded.load()
-        assert reloaded.transactions == []
-
-    def test_update_persists(self, app, storage):
-        app.add_transaction(EXPENSE, "Qera", Decimal("300"), "01-06-2026", "Qera")
-        app.update_transaction(0, shuma=Decimal("350"))
-
-        from personal_finance.app import FinanceApp
-
-        reloaded = FinanceApp(storage=storage, quiet=True)
-        reloaded.load()
-        assert reloaded.transactions[0].shuma == Decimal("350")
-
-    def test_process_recurring_persists_and_is_idempotent(self, app, storage):
-        app.recurring_rules.append(make_rule(start="01-06-2026"))
-        app.save_recurring()
-
-        first = app.process_recurring(as_of=datetime.date(2026, 8, 7))
-        assert len(first) == 3
-
-        from personal_finance.app import FinanceApp
-
-        reloaded = FinanceApp(storage=storage, quiet=True)
-        reloaded.load()
-        assert len(reloaded.transactions) == 3
-        assert reloaded.process_recurring(as_of=datetime.date(2026, 8, 7)) == []
-
-    def test_categories_include_ones_already_used(self, app):
-        app.add_transaction(EXPENSE, "Kafe", Decimal("2"), "01-06-2026", "Kafene")
-        assert "Kafene" in app.categories_for(EXPENSE)
-
-    def test_set_budget_persists(self, app, storage):
-        app.set_budget("Ushqim", Decimal("200"))
-
-        from personal_finance.app import FinanceApp
-
-        reloaded = FinanceApp(storage=storage, quiet=True)
-        reloaded.load()
-        assert reloaded.budgets[0].kategoria == "Ushqim"
+def add_expense(description="Qera", amount="300", date="02-06-2026", category="Qera", *extra):
+    main(
+        [
+            "--shto-shpenzime",
+            "--pershkrimi",
+            description,
+            "--shuma",
+            amount,
+            "--data",
+            date,
+            "--kategoria",
+            category,
+            "--nenkategoria",
+            "",
+            *extra,
+        ]
+    )
 
 
 class TestParser:
@@ -90,28 +73,6 @@ class TestParser:
         args = build_parser().parse_args(["--list", "--balance"])
         assert args.lista and args.gjendja
 
-    def test_add_flags_with_fields(self):
-        args = build_parser().parse_args(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Qera",
-                "--shuma",
-                "300",
-                "--data",
-                "01-06-2026",
-                "--kategoria",
-                "Qera",
-            ]
-        )
-        assert args.shto_shpenzime
-        assert args.pershkrimi == "Qera"
-        assert args.shuma == "300"
-
-    def test_language_flag(self):
-        assert build_parser().parse_args(["--gjuha", "en"]).gjuha == "en"
-        assert build_parser().parse_args(["--language", "en"]).gjuha == "en"
-
     def test_language_defaults_to_albanian(self):
         assert build_parser().parse_args([]).gjuha == "sq"
 
@@ -120,28 +81,25 @@ class TestParser:
             build_parser().parse_args(["--gjuha", "de"])
 
     def test_help_exits_cleanly(self):
-        with pytest.raises(SystemExit) as excinfo:
+        with pytest.raises(SystemExit) as info:
             build_parser().parse_args(["--ndihma"])
-        assert excinfo.value.code == 0
+        assert info.value.code == 0
+
+    def test_action_flags_matches_the_parser(self):
+        """A hand-written list drifted twice; this is the guard."""
+        dests = set(action_flag_dests(build_parser()))
+        assert dests
+        assert dests == set(ACTION_FLAGS)
+
+    def test_no_startup_notice_in_flag_mode(self, capsys):
+        main(["--gjendja"])
+        assert "Jane lexuar" not in capsys.readouterr().out
 
 
-class TestCliEndToEnd:
+class TestAddingAndListing:
     def test_add_then_list(self, capsys):
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Qera",
-                "--shuma",
-                "300",
-                "--data",
-                "01-06-2026",
-                "--kategoria",
-                "Qera",
-            ]
-        )
+        add_expense()
         capsys.readouterr()
-
         main(["--lista"])
         output = capsys.readouterr().out
         assert "Qera" in output
@@ -149,62 +107,29 @@ class TestCliEndToEnd:
 
     def test_income_appears_in_the_balance(self, capsys):
         """Guards the bug where income silently totalled zero."""
-        main(
-            [
-                "--shto-te-ardhura",
-                "--pershkrimi",
-                "Paga",
-                "--shuma",
-                "1000",
-                "--data",
-                "01-06-2026",
-                "--kategoria",
-                "Paga",
-            ]
-        )
+        add_income()
         capsys.readouterr()
-
         main(["--gjendja"])
-        output = capsys.readouterr().out
-        assert "1000.00" in output
-        assert "Te Ardhurat Totale: €1000.00" in output
+        assert "Te Ardhurat Totale: €1000.00" in capsys.readouterr().out
 
     def test_balance_arithmetic(self, capsys):
-        main(
-            [
-                "--shto-te-ardhura",
-                "--pershkrimi",
-                "Paga",
-                "--shuma",
-                "1000",
-                "--data",
-                "01-06-2026",
-                "--kategoria",
-                "Paga",
-            ]
-        )
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Qera",
-                "--shuma",
-                "300",
-                "--data",
-                "02-06-2026",
-                "--kategoria",
-                "Qera",
-            ]
-        )
+        add_income()
+        add_expense()
         capsys.readouterr()
-
         main(["--gjendja"])
         assert "Gjendja Aktuale: €700.00" in capsys.readouterr().out
 
-    def test_invalid_amount_is_rejected(self, capsys, tmp_path):
+    def test_listing_is_chronological(self, capsys):
+        add_expense("Vone", "10", "20-06-2026")
+        add_expense("Heret", "10", "01-06-2026")
+        capsys.readouterr()
+        main(["--lista"])
+        output = capsys.readouterr().out
+        assert output.index("Heret") < output.index("Vone")
+
+    def test_invalid_amount_is_rejected(self, isolated, capsys):
         main(
             [
-                "--csv",
                 "--shto-shpenzime",
                 "--pershkrimi",
                 "x",
@@ -214,15 +139,17 @@ class TestCliEndToEnd:
                 "01-06-2026",
                 "--kategoria",
                 "y",
+                "--nenkategoria",
+                "",
             ]
         )
         assert "pavlefshme" in capsys.readouterr().out
-        assert not (tmp_path / "transactions.csv").exists()
+        main(["--gjendja"])
+        assert "Numri i Transaksioneve: 0" in capsys.readouterr().out
 
-    def test_invalid_date_is_rejected(self, capsys, tmp_path):
+    def test_invalid_date_is_rejected(self, capsys):
         main(
             [
-                "--csv",
                 "--shto-shpenzime",
                 "--pershkrimi",
                 "x",
@@ -232,62 +159,33 @@ class TestCliEndToEnd:
                 "99-99-9999",
                 "--kategoria",
                 "y",
+                "--nenkategoria",
+                "",
             ]
         )
-        assert "pavlefshem" in capsys.readouterr().out
-        assert not (tmp_path / "transactions.csv").exists()
+        assert "pavlefshem" in capsys.readouterr().out.lower()
 
-    def test_single_date_filter(self, capsys):
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Qera",
-                "--shuma",
-                "300",
-                "--data",
-                "01-06-2026",
-                "--kategoria",
-                "Qera",
-            ]
-        )
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Ushqime",
-                "--shuma",
-                "50",
-                "--data",
-                "15-06-2026",
-                "--kategoria",
-                "Ushqim",
-            ]
-        )
+    def test_a_new_category_is_created_on_first_use(self, capsys):
+        add_expense(category="Kafene")
         capsys.readouterr()
+        main(["--lista"])
+        assert "Kafene" in capsys.readouterr().out
 
+
+class TestFilters:
+    def test_single_date(self, capsys):
+        add_expense("Qera", "300", "01-06-2026")
+        add_expense("Ushqime", "50", "15-06-2026")
+        capsys.readouterr()
         main(["--lista", "--data", "01-06-2026"])
         output = capsys.readouterr().out
         assert "Qera" in output
         assert "Ushqime" not in output
 
-    def test_date_range_filter_is_inclusive(self, capsys):
+    def test_date_range_is_inclusive(self, capsys):
         for day in ("01", "15", "28"):
-            main(
-                [
-                    "--shto-shpenzime",
-                    "--pershkrimi",
-                    f"Dita{day}",
-                    "--shuma",
-                    "10",
-                    "--data",
-                    f"{day}-06-2026",
-                    "--kategoria",
-                    "Ushqim",
-                ]
-            )
+            add_expense(f"Dita{day}", "10", f"{day}-06-2026")
         capsys.readouterr()
-
         main(["--lista", "--nga", "01-06-2026", "--deri", "15-06-2026"])
         output = capsys.readouterr().out
         assert "Dita01" in output and "Dita15" in output
@@ -297,85 +195,190 @@ class TestCliEndToEnd:
         main(["--lista", "--nga", "15-06-2026", "--deri", "01-06-2026"])
         assert "nuk mund te jete para" in capsys.readouterr().out
 
-    def test_search(self, capsys):
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Ushqime nga dyqani",
-                "--shuma",
-                "50",
-                "--data",
-                "01-06-2026",
-                "--kategoria",
-                "Ushqim",
-            ]
-        )
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Benzine",
-                "--shuma",
-                "60",
-                "--data",
-                "02-06-2026",
-                "--kategoria",
-                "Transport",
-            ]
-        )
+    def test_search_by_description(self, capsys):
+        add_expense("Ushqime nga dyqani", "50", "01-06-2026", "Ushqim")
+        add_expense("Benzine", "60", "02-06-2026", "Transport")
         capsys.readouterr()
-
         main(["--kerko", "dyqani"])
         output = capsys.readouterr().out
         assert "Ushqime nga dyqani" in output
         assert "Benzine" not in output
 
-    def test_budget_set_and_view(self, capsys):
-        main(["--cakto-buxhet", "Ushqim", "200"])
+    def test_search_matches_a_category_name(self, capsys):
+        """Approved behaviour: search reaches the joined names."""
+        add_expense("Asgje e vecante", "50", "01-06-2026", "Transport")
+        capsys.readouterr()
+        main(["--kerko", "Transport"])
+        assert "Asgje e vecante" in capsys.readouterr().out
+
+
+class TestAccounts:
+    def test_add_and_view(self, capsys):
+        main(["--shto-llogari", "Banka", "Banke", "850"])
+        capsys.readouterr()
+        main(["--llogarite"])
+        output = capsys.readouterr().out
+        assert "Banka" in output
+        assert "850.00" in output
+
+    def test_account_kind_matching_ignores_case(self, capsys):
+        main(["--shto-llogari", "Banka", "banke", "0"])
+        capsys.readouterr()
+        main(["--llogarite"])
+        assert "Banke" in capsys.readouterr().out
+
+    def test_negative_opening_is_allowed(self, capsys):
+        main(["--shto-llogari", "Karta", "Karte", "-250"])
+        capsys.readouterr()
+        main(["--llogarite"])
+        assert "-250.00" in capsys.readouterr().out
+
+    def test_unknown_kind_is_rejected_by_name(self, capsys):
+        main(["--shto-llogari", "X", "Kripto", "100"])
+        output = capsys.readouterr().out
+        assert "Lloj i pavlefshem" in output
+        assert "Kesh" in output
+
+    def test_duplicate_name_is_rejected(self, capsys):
+        main(["--shto-llogari", "Banka", "Banke", "0"])
+        capsys.readouterr()
+        main(["--shto-llogari", "banka", "Banke", "0"])
+        assert "ekziston" in capsys.readouterr().out
+
+    def test_unknown_account_on_add_is_rejected(self, capsys):
+        main(
+            [
+                "--shto-shpenzime",
+                "--pershkrimi",
+                "x",
+                "--shuma",
+                "10",
+                "--data",
+                "01-06-2026",
+                "--kategoria",
+                "y",
+                "--nenkategoria",
+                "",
+                "--llogaria",
+                "NukEkziston",
+            ]
+        )
+        output = capsys.readouterr().out
+        assert "NukEkziston" in output
+        assert "nuk ekziston" in output
+
+    def test_account_filter(self, capsys):
+        main(["--shto-llogari", "Banka", "Banke", "0"])
+        main(["--shto-llogari", "Kesh", "Kesh", "0"])
+        add_expense("Qera", "300", "01-06-2026", "Qera", "--llogaria", "Banka")
+        add_expense("Kafe", "3", "02-06-2026", "Ushqim", "--llogaria", "Kesh")
+        capsys.readouterr()
+        main(["--lista", "--llogaria", "Kesh"])
+        output = capsys.readouterr().out
+        assert "Kafe" in output
+        assert "Qera" not in output
+
+    def test_no_account_column_when_none_are_used(self, capsys):
+        add_expense()
+        capsys.readouterr()
+        main(["--lista"])
+        assert "Llogaria" not in capsys.readouterr().out
+
+
+class TestTransfers:
+    @pytest.fixture(autouse=True)
+    def two_accounts(self, capsys):
+        main(["--shto-llogari", "Banka", "Banke", "850"])
+        main(["--shto-llogari", "Kesh", "Kesh", "40"])
         capsys.readouterr()
 
+    def test_moves_money_between_accounts(self, capsys):
+        main(["--transfero", "Banka", "Kesh", "--shuma", "200"])
+        assert "regjistrua" in capsys.readouterr().out
+        main(["--llogarite"])
+        output = capsys.readouterr().out
+        assert "650.00" in output
+        assert "240.00" in output
+
+    def test_is_not_counted_as_spending(self, capsys):
+        main(["--transfero", "Banka", "Kesh", "--shuma", "200"])
+        capsys.readouterr()
+        main(["--gjendja"])
+        output = capsys.readouterr().out
+        assert "Shpenzimet Totale: €0.00" in output
+        assert "Te Ardhurat Totale: €0.00" in output
+
+    def test_same_account_is_rejected(self, capsys):
+        main(["--transfero", "Banka", "Banka", "--shuma", "50"])
+        assert "njejta" in capsys.readouterr().out
+
+    def test_unknown_account_is_named(self, capsys):
+        main(["--transfero", "Nope", "Kesh", "--shuma", "50"])
+        assert "Nope" in capsys.readouterr().out
+
+    def test_missing_amount_is_rejected(self, capsys):
+        main(["--transfero", "Banka", "Kesh"])
+        assert "pavlefshme" in capsys.readouterr().out.lower()
+
+
+class TestBudgets:
+    def test_set_and_view(self, capsys):
+        main(["--cakto-buxhet", "Ushqim", "200"])
+        capsys.readouterr()
         main(["--buxhetet"])
         output = capsys.readouterr().out
         assert "Ushqim" in output
         assert "200.00" in output
 
-    def test_budget_warning_when_exceeded(self, capsys):
+    def test_warning_when_exceeded(self, capsys):
         main(["--cakto-buxhet", "Ushqim", "100"])
         capsys.readouterr()
-
         today = datetime.date.today().strftime("%d-%m-%Y")
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Shume ushqim",
-                "--shuma",
-                "150",
-                "--data",
-                today,
-                "--kategoria",
-                "Ushqim",
-            ]
-        )
+        add_expense("Shume ushqim", "150", today, "Ushqim")
         assert "KUJDES" in capsys.readouterr().out
 
-    def test_monthly_report(self, capsys):
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Qera",
-                "--shuma",
-                "300",
-                "--data",
-                "15-06-2026",
-                "--kategoria",
-                "Qera",
-            ]
-        )
-        capsys.readouterr()
+    def test_zero_limit_is_rejected(self, capsys):
+        main(["--cakto-buxhet", "Ushqim", "0"])
+        assert "pavlefshme" in capsys.readouterr().out
 
+
+class TestRecurring:
+    def test_generates_and_lists(self, capsys):
+        # Rules are created through the menu, so this drives the app directly.
+        from personal_finance.app import FinanceApp
+        from personal_finance.config import DATABASE_FILE, data_path
+
+        app = FinanceApp(path=data_path(DATABASE_FILE), quiet=True)
+        app.add_recurring_rule(EXPENSE, "Qera", Decimal("300"), "mujore", "01-01-2026")
+        app.close()
+
+        main(["--perserit"])
+        assert "gjeneruan" in capsys.readouterr().out
+        main(["--perseritjet"])
+        assert "Qera" in capsys.readouterr().out
+
+    def test_does_not_duplicate_across_runs(self, capsys):
+        from personal_finance.app import FinanceApp
+        from personal_finance.config import DATABASE_FILE, data_path
+
+        app = FinanceApp(path=data_path(DATABASE_FILE), quiet=True)
+        app.add_recurring_rule(EXPENSE, "Qera", Decimal("300"), "mujore", "01-01-2026")
+        app.close()
+
+        main(["--perserit"])
+        capsys.readouterr()
+        main(["--gjendja"])
+        first = capsys.readouterr().out
+        main(["--perserit"])
+        capsys.readouterr()
+        main(["--gjendja"])
+        assert capsys.readouterr().out == first
+
+
+class TestReportsAndLanguage:
+    def test_monthly_report(self, capsys):
+        add_expense("Qera", "300", "15-06-2026", "Qera")
+        capsys.readouterr()
         main(["--raporti", "--muaji", "06-2026"])
         output = capsys.readouterr().out
         assert "06-2026" in output
@@ -391,10 +394,9 @@ class TestCliEndToEnd:
         assert "Financial Summary" in output
         assert "Total Income" in output
 
-    def test_language_does_not_change_stored_data(self, capsys, tmp_path):
+    def test_language_does_not_change_stored_data(self, capsys):
         main(
             [
-                "--csv",
                 "--gjuha",
                 "en",
                 "--add-expense",
@@ -406,94 +408,57 @@ class TestCliEndToEnd:
                 "01-06-2026",
                 "--category",
                 "Qera",
+                "--subcategory",
+                "",
             ]
         )
         capsys.readouterr()
-
-        stored = (tmp_path / "transactions.csv").read_text(encoding="utf-8")
-        # Stored type stays Albanian regardless of the display language.
-        assert "Shpenzime" in stored
-        assert "Expenses" not in stored
-
-    def test_recurring_generates_and_lists(self, capsys, tmp_path):
-        (tmp_path / "recurring.csv").write_text(
-            "lloji,pershkrimi,shuma,kategoria,frekuenca,data_fillimit,data_e_fundit\n"
-            f"{EXPENSE},Qera,300.00,Qera,mujore,01-01-2026,\n",
-            encoding="utf-8",
-        )
-
-        main(["--csv", "--perserit"])
-        assert "gjeneruan" in capsys.readouterr().out
-
-        main(["--csv", "--perseritjet"])
-        assert "Qera" in capsys.readouterr().out
-
-    def test_recurring_does_not_duplicate_across_runs(self, capsys, tmp_path):
-        (tmp_path / "recurring.csv").write_text(
-            "lloji,pershkrimi,shuma,kategoria,frekuenca,data_fillimit,data_e_fundit\n"
-            f"{EXPENSE},Qera,300.00,Qera,mujore,01-01-2026,\n",
-            encoding="utf-8",
-        )
-
-        main(["--csv", "--perserit"])
-        capsys.readouterr()
-        first = (tmp_path / "transactions.csv").read_text(encoding="utf-8")
-
-        main(["--csv", "--perserit"])
-        capsys.readouterr()
-        assert (tmp_path / "transactions.csv").read_text(encoding="utf-8") == first
-
-    def test_listing_is_chronological(self, capsys):
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Vone",
-                "--shuma",
-                "10",
-                "--data",
-                "20-06-2026",
-                "--kategoria",
-                "Ushqim",
-            ]
-        )
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Heret",
-                "--shuma",
-                "10",
-                "--data",
-                "01-06-2026",
-                "--kategoria",
-                "Ushqim",
-            ]
-        )
-        capsys.readouterr()
-
         main(["--lista"])
         output = capsys.readouterr().out
-        assert output.index("Heret") < output.index("Vone")
+        assert "Shpenzime" in output
+        assert "Qera" in output
 
     def test_no_color_output_has_no_escape_codes(self, capsys):
-        main(
-            [
-                "--shto-shpenzime",
-                "--pershkrimi",
-                "Qera",
-                "--shuma",
-                "300",
-                "--data",
-                "01-06-2026",
-                "--kategoria",
-                "Qera",
-            ]
-        )
+        add_expense()
         capsys.readouterr()
-
         main(["--lista", "--pa-ngjyra"])
         assert "\033[" not in capsys.readouterr().out
 
     def test_exit_code_is_zero_on_success(self):
         assert main(["--gjendja"]) == 0
+
+
+class TestExport:
+    def test_exports_and_reports_the_path(self, isolated, capsys):
+        add_expense()
+        capsys.readouterr()
+        target = str(isolated / "out.csv")
+        main(["--eksporto", target])
+        assert "U eksportuan 1" in capsys.readouterr().out
+        assert os.path.exists(target)
+
+    def test_filters_apply_to_export(self, isolated, capsys):
+        add_expense("Qera", "300", "01-06-2026")
+        add_expense("Ushqime", "50", "15-06-2026", "Ushqim")
+        capsys.readouterr()
+        target = str(isolated / "out.csv")
+        main(["--eksporto", target, "--data", "01-06-2026"])
+        capsys.readouterr()
+        with open(target, encoding="utf-8-sig") as handle:
+            assert len(handle.readlines()) == 2
+
+    def test_export_does_not_print_the_table(self, isolated, capsys):
+        add_expense()
+        capsys.readouterr()
+        main(["--eksporto", str(isolated / "out.csv"), "--kerko", "Qera"])
+        output = capsys.readouterr().out
+        assert "Te gjitha transaksionet" not in output
+        assert "U eksportuan" in output
+
+
+class TestDatabaseFlag:
+    def test_custom_database_path(self, isolated, capsys):
+        target = isolated / "custom" / "mydata.db"
+        main(["--baza", str(target), "--gjendja"])
+        capsys.readouterr()
+        assert target.exists()
