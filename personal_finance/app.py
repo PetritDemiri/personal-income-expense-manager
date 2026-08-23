@@ -149,6 +149,41 @@ class FinanceApp:
     def add_subcategory(self, name, category_id):
         return self.db.add_subcategory(Subcategory(name=name, category_id=category_id))
 
+    def subcategories(self, category_id):
+        return self.db.subcategories(category_id)
+
+    def category_exists(self, name, kind):
+        return self.db.category_by_name(name, kind) is not None
+
+    def subcategory_exists(self, name, category_id):
+        return self.db.subcategory_by_name(name, category_id) is not None
+
+    def rename_category(self, category_id, name):
+        """Rename a category. One row, since transactions reference an id."""
+        self.db.update_category(category_id, name)
+        return self.db.category(category_id)
+
+    def rename_subcategory(self, subcategory_id, name):
+        self.db.update_subcategory(subcategory_id, name)
+        return self.db.subcategory(subcategory_id)
+
+    def delete_category(self, category_id):
+        """Delete a category. Returns (removed, affected transactions).
+
+        Its transactions survive, uncategorised; its subcategories and any
+        budget go with it.
+        """
+        removed = self.db.category(category_id)
+        affected = len(self.db.transactions(category_id=category_id))
+        self.db.delete_category(category_id)
+        return removed, affected
+
+    def delete_subcategory(self, subcategory_id):
+        removed = self.db.subcategory(subcategory_id)
+        affected = len(self.db.transactions(subcategory_id=subcategory_id))
+        self.db.delete_subcategory(subcategory_id)
+        return removed, affected
+
     # -- accounts ----------------------------------------------------------
 
     def accounts(self):

@@ -193,11 +193,11 @@ class TestPromptIndex:
         assert prompt_index(5, "x") == 2
 
     def test_cancel_returns_none(self, answers, capsys):
-        answers("a")
+        answers("anulo")
         assert prompt_index(5, "x") is None
         assert "Anuluar" in capsys.readouterr().out
 
-    @pytest.mark.parametrize("bad", ["0", "6", "abc", ""])
+    @pytest.mark.parametrize("bad", ["0", "6", "abc", "", "a", "ANULO", " anulo "])
     def test_invalid_returns_none(self, answers, bad):
         answers(bad)
         assert prompt_index(5, "x") is None
@@ -324,3 +324,287 @@ class TestTransferFlow:
         add_transfer(app)
         assert "njejta" in capsys.readouterr().out
         assert app.transactions()[0].to_account == "Kesh"
+
+
+class TestStrictValidation:
+    """Rules tightened in 3.1.0, each from something that got through before."""
+
+    def test_whitespace_only_category_is_rejected(self, app, answers, capsys):
+        """It used to strip to empty and be read as "no category", silently."""
+        answers("   ", "Ushqim")
+        assert prompt_category(app, EXPENSE) == "Ushqim"
+        assert "vetem shkronja" in capsys.readouterr().out
+
+    def test_enter_still_means_no_category(self, app, answers):
+        answers("")
+        assert prompt_category(app, EXPENSE) is None
+
+    def test_a_name_with_digits_is_rejected(self, app, answers, capsys):
+        answers("Kredia2", "Kredia")
+        assert prompt_category(app, EXPENSE) == "Kredia"
+        assert "vetem shkronja" in capsys.readouterr().out
+
+    def test_whitespace_only_subcategory_is_rejected(self, app, answers, capsys):
+        answers("  ", "Dyqan")
+        assert prompt_subcategory(app, EXPENSE, "Ushqim") == "Dyqan"
+        assert "vetem shkronja" in capsys.readouterr().out
+
+    def test_enter_still_means_no_subcategory(self, app, answers):
+        answers("")
+        assert prompt_subcategory(app, EXPENSE, "Ushqim") is None
+
+    @pytest.mark.parametrize("bad", ["3e2", "1_000", "١٢٣", "-5", "abc"])
+    def test_amount_rejections(self, answers, bad, capsys):
+        answers(bad, "50")
+        assert prompt_amount() == Decimal("50")
+        assert "pavlefshme" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("bad", ["PO", "Po", "pO", "yes", "y", "1"])
+    def test_yes_is_lowercase_albanian_only(self, answers, bad, capsys):
+        """The input is compared as typed; lowercasing accepted "PO"."""
+        from personal_finance.dates import current_date_str
+
+        answers(bad, "po")
+        assert prompt_date() == current_date_str()
+        assert "po" in capsys.readouterr().out
+
+    def test_english_mode_takes_only_yes(self, answers, capsys):
+        from personal_finance.dates import current_date_str
+
+        i18n.set_language("en")
+        answers("po", "Yes", "y", "yes")
+        assert prompt_date() == current_date_str()
+        i18n.set_language("sq")
+
+    @pytest.mark.parametrize(
+        "bad", ["1-1-2026", "31-04-2026", "29-02-2026", "31-13-2026", "00-01-2026", "2026-01-01"]
+    )
+    def test_date_rejections(self, answers, bad, capsys):
+        answers("jo", bad, "15-06-2026")
+        assert prompt_date() == "15-06-2026"
+        assert "pavlefshem" in capsys.readouterr().out
+
+    def test_a_real_leap_day_is_accepted(self, answers):
+        answers("jo", "29-02-2024")
+        assert prompt_date() == "29-02-2024"
+
+
+class TestCategoryManagement:
+    def test_add_a_category(self, app, answers, capsys):
+        from personal_finance.ui import add_category
+
+        answers("2", "Ushqim")  # kind, name
+        add_category(app)
+        assert [c.name for c in app.categories(EXPENSE)] == ["Ushqim"]
+
+    def test_a_duplicate_is_refused(self, app, answers, capsys):
+        from personal_finance.ui import add_category
+
+        answers("2", "Ushqim")
+        add_category(app)
+        capsys.readouterr()
+        answers("2", "ushqim")  # same name, different case
+        add_category(app)
+        assert "ekziston" in capsys.readouterr().out
+        assert len(app.categories(EXPENSE)) == 1
+
+    def test_the_same_name_is_allowed_in_each_kind(self, app, answers, capsys):
+        from personal_finance.ui import add_category
+
+        answers("1", "Rimbursim")
+        add_category(app)
+        answers("2", "Rimbursim")
+        add_category(app)
+        assert len(app.categories(INCOME)) == 1
+        assert len(app.categories(EXPENSE)) == 1
+
+    def test_an_invalid_name_is_refused(self, app, answers, capsys):
+        from personal_finance.ui import add_category
+
+        answers("2", "Kredia2", " Ushqim", "Ushqim")
+        add_category(app)
+        output = capsys.readouterr().out
+        assert "vetem shkronja" in output
+        assert [c.name for c in app.categories(EXPENSE)] == ["Ushqim"]
+
+    def test_a_two_word_name_is_accepted(self, app, answers, capsys):
+        from personal_finance.ui import add_category
+
+        answers("2", "Te tjera")
+        add_category(app)
+        assert [c.name for c in app.categories(EXPENSE)] == ["Te tjera"]
+
+    def test_rename_touches_only_the_category_row(self, app, answers, capsys):
+        from personal_finance.ui import rename_category
+
+        app.add_transaction(EXPENSE, "Qera", Decimal("300"), "01-06-2026", "Ushqim")
+        capsys.readouterr()
+        answers("2", "1", "Ushqime")  # kind, pick, new name
+        rename_category(app)
+        assert app.transactions()[0].category == "Ushqime"
+
+    def test_add_a_subcategory(self, app, answers, capsys):
+        from personal_finance.ui import add_category, add_subcategory
+
+        answers("2", "Ushqim")
+        add_category(app)
+        capsys.readouterr()
+        answers("2", "1", "Dyqan")  # kind, pick category, name
+        add_subcategory(app)
+        category = app.categories(EXPENSE)[0]
+        assert [s.name for s in app.subcategories(category.id)] == ["Dyqan"]
+
+    def test_delete_a_category_keeps_its_transactions(self, app, answers, capsys):
+        from personal_finance.ui import delete_category
+
+        app.add_transaction(EXPENSE, "Qera", Decimal("300"), "01-06-2026", "Ushqim")
+        capsys.readouterr()
+        answers("2", "1", "po")  # kind, pick, confirm
+        delete_category(app)
+        assert app.count() == 1
+        assert app.transactions()[0].category is None
+
+    def test_deleting_a_category_can_be_cancelled(self, app, answers, capsys):
+        from personal_finance.ui import delete_category
+
+        app.add_transaction(EXPENSE, "Qera", Decimal("300"), "01-06-2026", "Ushqim")
+        capsys.readouterr()
+        answers("2", "1", "jo")
+        delete_category(app)
+        assert len(app.categories(EXPENSE)) == 1
+
+    def test_deleting_a_category_removes_its_subcategories(self, app, answers, capsys):
+        from personal_finance.ui import delete_category
+
+        app.add_transaction(EXPENSE, "Qera", Decimal("300"), "01-06-2026", "Ushqim", "Dyqan")
+        category = app.categories(EXPENSE)[0]
+        assert len(app.subcategories(category.id)) == 1
+        capsys.readouterr()
+
+        answers("2", "1", "po")
+        delete_category(app)
+        assert app.categories(EXPENSE) == []
+        assert app.transactions()[0].subcategory is None
+
+
+class TestNoSurroundingWhitespace:
+    """Values are taken exactly as typed, never trimmed into acceptability."""
+
+    def test_a_category_with_a_leading_space_is_rejected(self, app, answers, capsys):
+        answers(" Ushqim", "Ushqim")
+        assert prompt_category(app, EXPENSE) == "Ushqim"
+        assert "vetem shkronja" in capsys.readouterr().out
+
+    def test_a_category_with_a_trailing_space_is_rejected(self, app, answers, capsys):
+        answers("Ushqim ", "Ushqim")
+        assert prompt_category(app, EXPENSE) == "Ushqim"
+        assert "vetem shkronja" in capsys.readouterr().out
+
+    def test_two_words_are_accepted(self, app, answers):
+        answers("Te tjera")
+        assert prompt_category(app, EXPENSE) == "Te tjera"
+
+    def test_two_spaces_between_words_are_rejected(self, app, answers, capsys):
+        answers("Te  tjera", "Te tjera")
+        assert prompt_category(app, EXPENSE) == "Te tjera"
+        assert "vetem shkronja" in capsys.readouterr().out
+
+    def test_a_two_word_subcategory_is_accepted(self, app, answers):
+        answers("Paga baze")
+        assert prompt_subcategory(app, EXPENSE, "Paga") == "Paga baze"
+
+    def test_a_subcategory_with_surrounding_spaces_is_rejected(self, app, answers, capsys):
+        answers(" Dyqan ", "Dyqan")
+        assert prompt_subcategory(app, EXPENSE, "Ushqim") == "Dyqan"
+        assert "vetem shkronja" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("bad", [" po", "po ", " po ", "\tpo"])
+    def test_yes_with_surrounding_whitespace_is_rejected(self, answers, bad, capsys):
+        from personal_finance.dates import current_date_str
+
+        answers(bad, "po")
+        assert prompt_date() == current_date_str()
+        assert "po" in capsys.readouterr().out
+
+    def test_no_with_surrounding_whitespace_is_rejected(self, answers, capsys):
+        answers(" jo", "jo", "15-06-2026")
+        assert prompt_date() == "15-06-2026"
+        assert "po" in capsys.readouterr().out
+
+    def test_the_category_menu_prompt_is_equally_strict(self, app, answers, capsys):
+        from personal_finance.ui import add_category
+
+        answers("2", " Ushqim", "Ushqim")
+        add_category(app)
+        assert [c.name for c in app.categories(EXPENSE)] == ["Ushqim"]
+
+
+class TestCancelWord:
+    """Cancelling takes a whole word, in the interface language, exactly typed.
+
+    It used to be the single letter "a", which collided with "a" as a
+    legitimate category name - the name could be created but not chosen for
+    deletion, because the prompt read it as a cancellation.
+    """
+
+    def test_albanian_cancel(self, answers, capsys):
+        answers("anulo")
+        assert prompt_index(5, "x") is None
+        assert "Anuluar" in capsys.readouterr().out
+
+    def test_english_cancel(self, answers, capsys):
+        i18n.set_language("en")
+        answers("cancel")
+        assert prompt_index(5, "x") is None
+        assert "Cancelled" in capsys.readouterr().out
+        i18n.set_language("sq")
+
+    @pytest.mark.parametrize(
+        "bad", ["ANULO", "Anulo", " anulo", "anulo ", " anulo ", "cancel", "a"]
+    )
+    def test_albanian_mode_refuses_everything_else(self, answers, bad, capsys):
+        answers(bad)
+        assert prompt_index(5, "x") is None
+        # Refused as a number rather than accepted as a cancellation.
+        assert "Anuluar" not in capsys.readouterr().out
+
+    @pytest.mark.parametrize("bad", ["CANCEL", " cancel ", "anulo", "a"])
+    def test_english_mode_refuses_everything_else(self, answers, bad, capsys):
+        i18n.set_language("en")
+        answers(bad)
+        assert prompt_index(5, "x") is None
+        assert "Cancelled" not in capsys.readouterr().out
+        i18n.set_language("sq")
+
+    def test_a_single_letter_is_a_usable_category_name_again(self, app, answers, capsys):
+        """The collision the whole change exists to remove."""
+        from personal_finance.ui import add_category, delete_category
+
+        answers("2", "a")
+        add_category(app)
+        capsys.readouterr()
+
+        answers("2", "1", "po")  # kind, pick the category, confirm
+        delete_category(app)
+        assert app.categories(EXPENSE) == []
+
+    def test_the_prompt_names_the_cancel_word(self):
+        assert "anulo" in i18n.t("ask_number_category")
+        i18n.set_language("en")
+        assert "cancel" in i18n.t("ask_number_category")
+        i18n.set_language("sq")
+
+    def test_cancelling_a_date_filter(self, app, answers, capsys):
+        from personal_finance.ui import filter_single_date
+
+        answers("anulo")
+        filter_single_date(app)
+        assert "Anuluar" in capsys.readouterr().out
+
+    def test_cancelling_a_category_name_prompt(self, app, answers, capsys):
+        from personal_finance.ui import add_category
+
+        answers("2", "anulo")
+        add_category(app)
+        assert "Anuluar" in capsys.readouterr().out
+        assert app.categories(EXPENSE) == []

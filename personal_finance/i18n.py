@@ -53,7 +53,7 @@ MESSAGES = {
         "account_updated": "Llogaria u ndryshua me sukses!",
         "account_deleted": "Llogaria {name} u fshi. {count} transaksione mbeten pa llogari.",
         "account_exists": "Nje llogari me kete emer ekziston tashme.",
-        "ask_number_account": "Vendosni numrin e llogarise (ose 'a' per te anuluar): ",
+        "ask_number_account": "Vendosni numrin e llogarise (ose 'anulo' per te anuluar): ",
         "ask_account": "Zgjidhni llogarine: ",
         "ask_account_keep": "Llogaria [{current}] (Enter = pa ndryshim): ",
         "ask_destination": "Zgjidhni llogarine ku shkojne parate: ",
@@ -109,6 +109,8 @@ MESSAGES = {
         "ask_category": "Zgjidhni ose shkruani kategorine: ",
         "ask_category_keep": "Kategoria [{current}] (Enter = pa ndryshim): ",
         "invalid_category_number": "Numer i pavlefshem i kategorise.",
+        "invalid_name": "Emri duhet te permbaje vetem shkronja - pa numra, "
+        "pa hapesira dhe pa shenja.",
         "suggested_subcategories": "Nenkategorite e sugjeruara:",
         "own_subcategory_hint": "(Ose shkruani nje nenkategori tuajen)",
         "skip_subcategory_hint": "(Shtypni Enter per te vazhduar pa nenkategori)",
@@ -118,8 +120,8 @@ MESSAGES = {
         "no_subcategory": "pa nenkategori",
         "added": "{type} eshte shtuar me sukses!",
         # Editing / deleting
-        "ask_number_edit": "Vendosni numrin e transaksionit per ta ndryshuar (ose 'a' per te anuluar): ",
-        "ask_number_delete": "Vendosni numrin e transaksionit per ta fshire (ose 'a' per te anuluar): ",
+        "ask_number_edit": "Vendosni numrin e transaksionit per ta ndryshuar (ose 'anulo' per te anuluar): ",
+        "ask_number_delete": "Vendosni numrin e transaksionit per ta fshire (ose 'anulo' per te anuluar): ",
         "editing": "Duke ndryshuar transaksionin #{number}",
         "edited": "Transaksioni u ndryshua me sukses!",
         "deleted": "U fshi: {date} - {type} - {description} - {category}",
@@ -158,7 +160,7 @@ MESSAGES = {
         "first_date": "Data e pare e ketij transaksioni:",
         "recurring_added": "Transaksioni i perseritur u shtua me sukses!",
         "recurring_deleted": "U fshi perseritja: {description}",
-        "ask_number_recurring": "Vendosni numrin e perseritjes per ta fshire (ose 'a' per te anuluar): ",
+        "ask_number_recurring": "Vendosni numrin e perseritjes per ta fshire (ose 'anulo' per te anuluar): ",
         "next_occurrence": "Radha tjeter: {date}",
         "generated": "U gjeneruan {count} transaksione te perseritura.",
         "nothing_due": "Nuk ka transaksione te perseritura per te gjeneruar.",
@@ -171,7 +173,7 @@ MESSAGES = {
         "ask_budget_amount": "Shuma mujore e buxhetit: ",
         "budget_saved": "Buxheti per {category} u ruajt.",
         "budget_deleted": "Buxheti per {category} u fshi.",
-        "ask_number_budget": "Vendosni numrin e buxhetit per ta fshire (ose 'a' per te anuluar): ",
+        "ask_number_budget": "Vendosni numrin e buxhetit per ta fshire (ose 'anulo' per te anuluar): ",
         "budget_spent": "Shpenzuar",
         "budget_limit": "Buxheti",
         "budget_left": "Mbetur",
@@ -207,13 +209,42 @@ MESSAGES = {
         "export_empty": "Nuk ka asnje transaksion per te eksportuar.",
         "export_failed": "Eksportimi deshtoi: {error}",
         "invalid_delimiter": "Ndares i pavlefshem. Perdorni nje nga: {allowed}",
+        "menu_categories": "Kategorite",
+        "categories_title": "Kategorite dhe Nenkategorite:",
+        "no_categories": "Nuk ka asnje kategori.",
+        "category_menu_view": "Shiko Kategorite",
+        "category_menu_add": "Shto nje Kategori",
+        "category_menu_rename": "Ndrysho nje Kategori",
+        "category_menu_delete": "Fshi nje Kategori",
+        "category_menu_add_sub": "Shto nje Nenkategori",
+        "category_menu_rename_sub": "Ndrysho nje Nenkategori",
+        "category_menu_delete_sub": "Fshi nje Nenkategori",
+        "ask_new_category": "Emri i kategorise se re: ",
+        "ask_new_subcategory": "Emri i nenkategorise se re: ",
+        "ask_rename": "Emri i ri [{current}]: ",
+        "ask_number_category": "Vendosni numrin e kategorise (ose 'anulo' per te anuluar): ",
+        "ask_number_subcategory": "Vendosni numrin e nenkategorise (ose 'anulo' per te anuluar): ",
+        "category_added": "Kategoria {name} u shtua.",
+        "category_renamed": "Kategoria u riemerua ne {name}.",
+        "category_deleted": "Kategoria {name} u fshi. {count} transaksione mbeten pa kategori.",
+        "category_exists": "Nje kategori me kete emer ekziston tashme per kete lloj.",
+        "subcategory_added": "Nenkategoria {name} u shtua nen {parent}.",
+        "subcategory_renamed": "Nenkategoria u riemerua ne {name}.",
+        "subcategory_deleted": "Nenkategoria {name} u fshi. {count} transaksione mbeten pa nenkategori.",
+        "subcategory_exists": "Nje nenkategori me kete emer ekziston tashme nen kete kategori.",
+        "no_subcategories": "Kjo kategori nuk ka nenkategori.",
+        "confirm_delete_category": "Do te fshihet {name} bashke me {subs} nenkategori. "
+        "{count} transaksione mbeten pa kategori. Vazhdo? (po/jo): ",
+        "confirm_delete_subcategory": "Do te fshihet {name}. {count} transaksione "
+        "mbeten pa nenkategori. Vazhdo? (po/jo): ",
+        "pick_category_kind": "Per cilin lloj?",
         "menu_exit": "Dil nga programi",
         "filter_menu_title": "Filtro sipas Dates:",
         "filter_single": "Nje date e caktuar",
         "filter_range": "Midis dy datave",
-        "filter_start": "Data e fillimit ( dite-muaj-Vit ) ose 'a' per te anuluar: ",
-        "filter_end": "Data e mbarimit ( dite-muaj-Vit ) ose 'a' per te anuluar: ",
-        "filter_date": "Vendosni daten ( dite-muaj-Vit ) ose 'a' per te anuluar: ",
+        "filter_start": "Data e fillimit ( dite-muaj-Vit ) ose 'anulo' per te anuluar: ",
+        "filter_end": "Data e mbarimit ( dite-muaj-Vit ) ose 'anulo' per te anuluar: ",
+        "filter_date": "Vendosni daten ( dite-muaj-Vit ) ose 'anulo' per te anuluar: ",
         "end_before_start": "Data e mbarimit nuk mund te jete para dates se fillimit.",
         "recurring_menu_view": "Shiko Perseritjet",
         "recurring_menu_add": "Shto nje Perseritje",
@@ -263,7 +294,7 @@ MESSAGES = {
         "account_updated": "Account updated successfully!",
         "account_deleted": "Account {name} deleted. {count} transactions are now unassigned.",
         "account_exists": "An account with that name already exists.",
-        "ask_number_account": "Enter the account number (or 'a' to cancel): ",
+        "ask_number_account": "Enter the account number (or 'cancel' to cancel): ",
         "ask_account": "Choose the account: ",
         "ask_account_keep": "Account [{current}] (Enter = unchanged): ",
         "ask_destination": "Choose the account the money goes to: ",
@@ -317,6 +348,7 @@ MESSAGES = {
         "ask_category": "Choose or type the category: ",
         "ask_category_keep": "Category [{current}] (Enter = unchanged): ",
         "invalid_category_number": "Invalid category number.",
+        "invalid_name": "The name must contain only letters - no digits, spaces or symbols.",
         "suggested_subcategories": "Suggested subcategories:",
         "own_subcategory_hint": "(Or type a subcategory of your own)",
         "skip_subcategory_hint": "(Press Enter to continue without a subcategory)",
@@ -325,8 +357,8 @@ MESSAGES = {
         "invalid_subcategory_number": "Invalid subcategory number.",
         "no_subcategory": "no subcategory",
         "added": "{type} added successfully!",
-        "ask_number_edit": "Enter the number of the transaction to edit (or 'a' to cancel): ",
-        "ask_number_delete": "Enter the number of the transaction to delete (or 'a' to cancel): ",
+        "ask_number_edit": "Enter the number of the transaction to edit (or 'cancel' to cancel): ",
+        "ask_number_delete": "Enter the number of the transaction to delete (or 'cancel' to cancel): ",
         "editing": "Editing transaction #{number}",
         "edited": "Transaction updated successfully!",
         "deleted": "Deleted: {date} - {type} - {description} - {category}",
@@ -360,7 +392,7 @@ MESSAGES = {
         "first_date": "First date of this transaction:",
         "recurring_added": "Recurring transaction added successfully!",
         "recurring_deleted": "Deleted recurring rule: {description}",
-        "ask_number_recurring": "Enter the number of the recurring rule to delete (or 'a' to cancel): ",
+        "ask_number_recurring": "Enter the number of the recurring rule to delete (or 'cancel' to cancel): ",
         "next_occurrence": "Next occurrence: {date}",
         "generated": "Generated {count} recurring transactions.",
         "nothing_due": "There are no recurring transactions due.",
@@ -372,7 +404,7 @@ MESSAGES = {
         "ask_budget_amount": "Monthly budget amount: ",
         "budget_saved": "Budget for {category} saved.",
         "budget_deleted": "Budget for {category} deleted.",
-        "ask_number_budget": "Enter the number of the budget to delete (or 'a' to cancel): ",
+        "ask_number_budget": "Enter the number of the budget to delete (or 'cancel' to cancel): ",
         "budget_spent": "Spent",
         "budget_limit": "Budget",
         "budget_left": "Left",
@@ -406,13 +438,42 @@ MESSAGES = {
         "export_empty": "There are no transactions to export.",
         "export_failed": "Export failed: {error}",
         "invalid_delimiter": "Invalid delimiter. Use one of: {allowed}",
+        "menu_categories": "Categories",
+        "categories_title": "Categories and subcategories:",
+        "no_categories": "There are no categories.",
+        "category_menu_view": "View Categories",
+        "category_menu_add": "Add a Category",
+        "category_menu_rename": "Rename a Category",
+        "category_menu_delete": "Delete a Category",
+        "category_menu_add_sub": "Add a Subcategory",
+        "category_menu_rename_sub": "Rename a Subcategory",
+        "category_menu_delete_sub": "Delete a Subcategory",
+        "ask_new_category": "Name of the new category: ",
+        "ask_new_subcategory": "Name of the new subcategory: ",
+        "ask_rename": "New name [{current}]: ",
+        "ask_number_category": "Enter the category number (or 'cancel' to cancel): ",
+        "ask_number_subcategory": "Enter the subcategory number (or 'cancel' to cancel): ",
+        "category_added": "Category {name} added.",
+        "category_renamed": "Category renamed to {name}.",
+        "category_deleted": "Category {name} deleted. {count} transactions are now uncategorised.",
+        "category_exists": "A category with that name already exists for this kind.",
+        "subcategory_added": "Subcategory {name} added under {parent}.",
+        "subcategory_renamed": "Subcategory renamed to {name}.",
+        "subcategory_deleted": "Subcategory {name} deleted. {count} transactions no longer have one.",
+        "subcategory_exists": "A subcategory with that name already exists under this category.",
+        "no_subcategories": "This category has no subcategories.",
+        "confirm_delete_category": "{name} will be deleted along with {subs} "
+        "subcategories. {count} transactions will become uncategorised. Continue? (yes/no): ",
+        "confirm_delete_subcategory": "{name} will be deleted. {count} transactions "
+        "will no longer have a subcategory. Continue? (yes/no): ",
+        "pick_category_kind": "For which kind?",
         "menu_exit": "Exit",
         "filter_menu_title": "Filter by Date:",
         "filter_single": "A specific date",
         "filter_range": "Between two dates",
-        "filter_start": "Start date ( day-month-Year ) or 'a' to cancel: ",
-        "filter_end": "End date ( day-month-Year ) or 'a' to cancel: ",
-        "filter_date": "Enter the date ( day-month-Year ) or 'a' to cancel: ",
+        "filter_start": "Start date ( day-month-Year ) or 'cancel' to cancel: ",
+        "filter_end": "End date ( day-month-Year ) or 'cancel' to cancel: ",
+        "filter_date": "Enter the date ( day-month-Year ) or 'cancel' to cancel: ",
         "end_before_start": "The end date cannot be before the start date.",
         "recurring_menu_view": "View Recurring Rules",
         "recurring_menu_add": "Add a Recurring Rule",
@@ -430,8 +491,16 @@ MESSAGES = {
 }
 
 # Words accepted as "yes" at the today/date prompt, per language.
-AFFIRMATIVE = {"sq": ("po",), "en": ("yes", "y")}
-NEGATIVE = {"sq": ("jo",), "en": ("no", "n")}
+# Exact lowercase, and only the active language's word. The input is compared
+# as typed rather than lowercased or stripped first, so "PO", "Po" and " po "
+# are all rejected.
+AFFIRMATIVE = {"sq": ("po",), "en": ("yes",)}
+NEGATIVE = {"sq": ("jo",), "en": ("no",)}
+
+# The word that backs out of a prompt. A whole word rather than a single
+# letter, because "a" was itself a legitimate category name and the two
+# collided.
+CANCEL = {"sq": ("anulo",), "en": ("cancel",)}
 
 _language = DEFAULT_LANGUAGE
 
@@ -494,3 +563,13 @@ def affirmatives():
 def negatives():
     """Words that count as 'no' in the active language."""
     return NEGATIVE.get(_language, NEGATIVE[DEFAULT_LANGUAGE])
+
+
+def cancels():
+    """Words that back out of a prompt in the active language."""
+    return CANCEL.get(_language, CANCEL[DEFAULT_LANGUAGE])
+
+
+def cancel_word():
+    """The cancel word itself, for showing inside a prompt."""
+    return cancels()[0]

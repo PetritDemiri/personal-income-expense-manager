@@ -84,19 +84,6 @@ CLEAR_MARKER = "-"
 # Suggested categories offered when adding a transaction. The user can always
 # type something else; anything already used in the data is suggested too.
 # ---------------------------------------------------------------------------
-SUGGESTED_CATEGORIES = {
-    INCOME: ["Paga", "Bonus", "Dhurate", "Investime", "Te tjera"],
-    EXPENSE: [
-        "Ushqim",
-        "Qera",
-        "Transport",
-        "Fatura",
-        "Argetim",
-        "Shendetesi",
-        "Veshje",
-        "Te tjera",
-    ],
-}
 
 # ---------------------------------------------------------------------------
 # Suggested subcategories, keyed by category. Subcategories are optional: a
@@ -106,20 +93,6 @@ SUGGESTED_CATEGORIES = {
 # still type a subcategory for it, and it will be remembered and suggested
 # from then on.
 # ---------------------------------------------------------------------------
-SUGGESTED_SUBCATEGORIES = {
-    # Te ardhura
-    "Paga": ["Paga baze", "Shtesa", "Puna ekstra", OTHER_CATEGORY],
-    "Bonus": ["Vjetor", "Performance", OTHER_CATEGORY],
-    "Investime": ["Interes", "Dividend", "Shitje", OTHER_CATEGORY],
-    # Shpenzime
-    "Ushqim": ["Dyqan", "Restorant", "Kafe", "Pije", OTHER_CATEGORY],
-    "Qera": ["Banesa", "Garazha", "Depo", OTHER_CATEGORY],
-    "Transport": ["Karburant", "Bileta", "Taksi", "Sherbim", OTHER_CATEGORY],
-    "Fatura": ["Rryma", "Uji", "Internet", "Telefon", "Mbeturina", OTHER_CATEGORY],
-    "Argetim": ["Kinema", "Sport", "Libra", "Udhetim", OTHER_CATEGORY],
-    "Shendetesi": ["Mjek", "Barnatore", "Dentist", OTHER_CATEGORY],
-    "Veshje": ["Rroba", "Kepuce", "Aksesore", OTHER_CATEGORY],
-}
 
 # ---------------------------------------------------------------------------
 # Accounts

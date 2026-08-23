@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 
 from .accounts import balances_for, count_unassigned, find_account
 from .budgets import all_statuses
-from .colors import BOLD, CYAN, DIM, RED, YELLOW, paint
+from .colors import BOLD, CYAN, DIM, RED, YELLOW, paint, type_color
 from .config import CLEAR_MARKER
 from .dates import (
     current_date_str,
@@ -33,13 +33,15 @@ from .display import (
     print_summary,
     print_transactions,
 )
-from .i18n import affirmatives, frequency_label, negatives, t, type_label
-from .models import ACCOUNT_KINDS, parse_amount
+from .i18n import affirmatives, cancels, frequency_label, negatives, t, type_label
+from .models import ACCOUNT_KINDS, parse_amount, valid_name
 from .recurring import FREQUENCIES
 from .reports import calculate_totals, month_report, sort_by_date
 from .schema import EXPENSE, INCOME, TRANSFER
 
-CANCEL_KEYS = ("a",)
+# The cancel word is language-dependent and lives in the message catalog; see
+# i18n.cancels(). Every check below compares the input exactly as typed - not
+# lowercased, not stripped - so " anulo " and "ANULO" are refused.
 
 
 # ---------------------------------------------------------------------------
@@ -65,12 +67,12 @@ def pick(app, message):
     print_transactions(numbered(rows))
     if not rows:
         return None
-    raw = input(message).strip().lower()
-    if raw in CANCEL_KEYS:
+    typed = input(message)
+    if typed in cancels():
         print(t("cancelled"))
         return None
     try:
-        position = int(raw)
+        position = int(typed)
         if position < 1 or position > len(rows):
             raise ValueError
     except ValueError:
@@ -116,7 +118,10 @@ def prompt_date(current=None):
     """Ask for a date, offering today as a shortcut when adding."""
     if current is None:
         while True:
-            choice = input(t("ask_today")).strip().lower()
+            # Compared exactly as typed - not lowercased, not stripped. Both
+            # would quietly accept something the user did not write: "PO", or
+            # " po " with spaces around it.
+            choice = input(t("ask_today"))
             if choice in affirmatives():
                 return current_date_str()
             if choice in negatives():
@@ -166,23 +171,29 @@ def prompt_category(app, kind, current=None):
         print(paint(f"  {t('own_category_hint')}", DIM))
 
     while True:
-        if current is None:
-            raw = input(t("ask_category")).strip()
-            if not raw:
-                return None
-        else:
-            raw = input(t("ask_category_keep", current=current)).strip()
-            if not raw:
-                return current
-            if raw == CLEAR_MARKER:
-                return None
-        if raw.isdigit():
-            index = int(raw)
+        # Validated exactly as typed. Stripping first would silently accept
+        # " Ushqim ", and the stored name would not be the one entered.
+        typed = (
+            input(t("ask_category"))
+            if current is None
+            else input(t("ask_category_keep", current=current))
+        )
+
+        if not typed:
+            return None if current is None else current
+        if current is not None and typed == CLEAR_MARKER:
+            return None
+
+        if typed.isdigit():
+            index = int(typed)
             if 1 <= index <= len(options):
                 return options[index - 1]
             print(paint(t("invalid_category_number"), RED))
             continue
-        return raw
+        if not valid_name(typed):
+            print(paint(t("invalid_name"), RED))
+            continue
+        return typed
 
 
 def prompt_subcategory(app, kind, category, current=None):
@@ -204,23 +215,27 @@ def prompt_subcategory(app, kind, category, current=None):
         print(paint(f"  {t('skip_subcategory_hint')}", DIM))
 
     while True:
-        if current is None:
-            raw = input(t("ask_subcategory")).strip()
-            if not raw:
-                return None
-        else:
-            raw = input(t("ask_subcategory_keep", current=current or t("no_subcategory"))).strip()
-            if not raw:
-                return current
-            if raw == CLEAR_MARKER:
-                return None
-        if raw.isdigit():
-            index = int(raw)
+        typed = (
+            input(t("ask_subcategory"))
+            if current is None
+            else input(t("ask_subcategory_keep", current=current or t("no_subcategory")))
+        )
+
+        if not typed:
+            return None if current is None else current
+        if current is not None and typed == CLEAR_MARKER:
+            return None
+
+        if typed.isdigit():
+            index = int(typed)
             if 1 <= index <= len(options):
                 return options[index - 1]
             print(paint(t("invalid_subcategory_number"), RED))
             continue
-        return raw
+        if not valid_name(typed):
+            print(paint(t("invalid_name"), RED))
+            continue
+        return typed
 
 
 def prompt_account(app, current=None, message_key="ask_account", allow_skip=True):
@@ -299,12 +314,12 @@ def prompt_opening_balance(current=None):
 
 def prompt_index(count, message):
     """Ask for a 1-based number in range. Returns a 0-based index or None."""
-    raw = input(message).strip().lower()
-    if raw in CANCEL_KEYS:
+    typed = input(message)
+    if typed in cancels():
         print(t("cancelled"))
         return None
     try:
-        number = int(raw)
+        number = int(typed)
         if number < 1 or number > count:
             raise ValueError
     except ValueError:
@@ -416,8 +431,8 @@ def show_filtered(app, start, end, title):
 
 def filter_single_date(app):
     while True:
-        raw = input(t("filter_date")).strip()
-        if raw.lower() in CANCEL_KEYS:
+        raw = input(t("filter_date"))
+        if raw in cancels():
             print(t("cancelled"))
             return
         target = parse_date(raw)
@@ -430,8 +445,8 @@ def filter_single_date(app):
 
 def filter_date_range(app):
     while True:
-        raw = input(t("filter_start")).strip()
-        if raw.lower() in CANCEL_KEYS:
+        raw = input(t("filter_start"))
+        if raw in cancels():
             print(t("cancelled"))
             return
         start = parse_date(raw)
@@ -441,8 +456,8 @@ def filter_date_range(app):
         break
 
     while True:
-        raw = input(t("filter_end")).strip()
-        if raw.lower() in CANCEL_KEYS:
+        raw = input(t("filter_end"))
+        if raw in cancels():
             print(t("cancelled"))
             return
         end = parse_date(raw)
@@ -525,8 +540,8 @@ def export_to_csv(app):
     answer = input(t("ask_export_filter")).strip().lower()
     if answer in affirmatives():
         while True:
-            raw = input(t("filter_start")).strip()
-            if raw.lower() in CANCEL_KEYS:
+            raw = input(t("filter_start"))
+            if raw in cancels():
                 print(t("cancelled"))
                 return
             start = parse_date(raw)
@@ -535,8 +550,8 @@ def export_to_csv(app):
                 continue
             break
         while True:
-            raw = input(t("filter_end")).strip()
-            if raw.lower() in CANCEL_KEYS:
+            raw = input(t("filter_end"))
+            if raw in cancels():
                 print(t("cancelled"))
                 return
             end = parse_date(raw)
@@ -751,6 +766,206 @@ def account_menu(app):
 
 
 # ---------------------------------------------------------------------------
+# Categories
+# ---------------------------------------------------------------------------
+
+
+def prompt_name(message_key, **kwargs):
+    """Ask for a category or subcategory name. None if cancelled.
+
+    Validated exactly as typed, like the prompts used when adding a
+    transaction - a name is stored as written or not at all.
+    """
+    while True:
+        typed = input(t(message_key, **kwargs))
+        if typed in cancels():
+            print(t("cancelled"))
+            return None
+        if not valid_name(typed):
+            print(paint(t("invalid_name"), RED))
+            continue
+        return typed
+
+
+def prompt_category_kind():
+    """Ask whether a category belongs to income or expenses."""
+    print(f"\n{t('pick_category_kind')}")
+    return prompt_kind()
+
+
+def show_categories(app):
+    """Every category grouped by kind, with its subcategories underneath."""
+    printed = False
+    for kind in (INCOME, EXPENSE):
+        categories = app.categories(kind)
+        if not categories:
+            continue
+        printed = True
+        print(paint(f"\n{type_label(kind)}", BOLD, type_color(kind)))
+        for index, category in enumerate(categories, start=1):
+            print(f"  {index}. {category.name}")
+            for subcategory in app.subcategories(category.id):
+                print(paint(f"       {subcategory.name}", DIM))
+    if not printed:
+        print(paint(f"\n{t('no_categories')}", YELLOW))
+
+
+def pick_category(app, kind=None):
+    """List categories and return the chosen one, or None."""
+    kind = kind or prompt_category_kind()
+    categories = app.categories(kind)
+    if not categories:
+        print(paint(t("no_categories"), YELLOW))
+        return None
+    print(paint(f"\n{type_label(kind)}", BOLD, type_color(kind)))
+    for index, category in enumerate(categories, start=1):
+        print(f"  {index}. {category.name}")
+    index = prompt_index(len(categories), t("ask_number_category"))
+    return categories[index] if index is not None else None
+
+
+def pick_subcategory(app, category):
+    """List a category's subcategories and return the chosen one, or None."""
+    subcategories = app.subcategories(category.id)
+    if not subcategories:
+        print(paint(t("no_subcategories"), YELLOW))
+        return None
+    print(paint(f"\n{category.name}", BOLD))
+    for index, subcategory in enumerate(subcategories, start=1):
+        print(f"  {index}. {subcategory.name}")
+    index = prompt_index(len(subcategories), t("ask_number_subcategory"))
+    return subcategories[index] if index is not None else None
+
+
+def add_category(app):
+    kind = prompt_category_kind()
+    name = prompt_name("ask_new_category")
+    if name is None:
+        return
+    if app.category_exists(name, kind):
+        print(paint(t("category_exists"), RED))
+        return
+    app.add_category(name, kind)
+    print(paint(t("category_added", name=name), BOLD))
+
+
+def rename_category(app):
+    category = pick_category(app)
+    if category is None:
+        return
+    name = prompt_name("ask_rename", current=category.name)
+    if name is None:
+        return
+    existing = app.db.category_by_name(name, category.kind)
+    if existing is not None and existing.id != category.id:
+        print(paint(t("category_exists"), RED))
+        return
+    app.rename_category(category.id, name)
+    print(paint(t("category_renamed", name=name), BOLD))
+
+
+def delete_category(app):
+    category = pick_category(app)
+    if category is None:
+        return
+
+    subs = len(app.subcategories(category.id))
+    affected = len(app.transactions(category_id=category.id))
+    answer = input(
+        t("confirm_delete_category", name=category.name, subs=subs, count=affected)
+    ).strip()
+    if answer not in affirmatives():
+        print(t("cancelled"))
+        return
+
+    removed, count = app.delete_category(category.id)
+    print(paint(t("category_deleted", name=removed.name, count=count), YELLOW))
+
+
+def add_subcategory(app):
+    category = pick_category(app)
+    if category is None:
+        return
+    name = prompt_name("ask_new_subcategory")
+    if name is None:
+        return
+    if app.subcategory_exists(name, category.id):
+        print(paint(t("subcategory_exists"), RED))
+        return
+    app.add_subcategory(name, category.id)
+    print(paint(t("subcategory_added", name=name, parent=category.name), BOLD))
+
+
+def rename_subcategory(app):
+    category = pick_category(app)
+    if category is None:
+        return
+    subcategory = pick_subcategory(app, category)
+    if subcategory is None:
+        return
+    name = prompt_name("ask_rename", current=subcategory.name)
+    if name is None:
+        return
+    existing = app.db.subcategory_by_name(name, category.id)
+    if existing is not None and existing.id != subcategory.id:
+        print(paint(t("subcategory_exists"), RED))
+        return
+    app.rename_subcategory(subcategory.id, name)
+    print(paint(t("subcategory_renamed", name=name), BOLD))
+
+
+def delete_subcategory(app):
+    category = pick_category(app)
+    if category is None:
+        return
+    subcategory = pick_subcategory(app, category)
+    if subcategory is None:
+        return
+
+    affected = len(app.transactions(subcategory_id=subcategory.id))
+    answer = input(t("confirm_delete_subcategory", name=subcategory.name, count=affected)).strip()
+    if answer not in affirmatives():
+        print(t("cancelled"))
+        return
+
+    removed, count = app.delete_subcategory(subcategory.id)
+    print(paint(t("subcategory_deleted", name=removed.name, count=count), YELLOW))
+
+
+def category_menu(app):
+    while True:
+        print(paint(f"\n{t('menu_categories')}:", BOLD, CYAN))
+        print(f"1. {t('category_menu_view')}")
+        print(f"2. {t('category_menu_add')}")
+        print(f"3. {t('category_menu_rename')}")
+        print(f"4. {t('category_menu_delete')}")
+        print(f"5. {t('category_menu_add_sub')}")
+        print(f"6. {t('category_menu_rename_sub')}")
+        print(f"7. {t('category_menu_delete_sub')}")
+        print(f"8. {t('back')}")
+
+        choice = prompt_menu_choice(1, 8)
+        if choice == "1":
+            show_categories(app)
+        elif choice == "2":
+            add_category(app)
+        elif choice == "3":
+            rename_category(app)
+        elif choice == "4":
+            delete_category(app)
+        elif choice == "5":
+            add_subcategory(app)
+        elif choice == "6":
+            rename_subcategory(app)
+        elif choice == "7":
+            delete_subcategory(app)
+        elif choice == "8":
+            return
+        else:
+            print(paint(t("invalid_choice", low=1, high=8), RED))
+
+
+# ---------------------------------------------------------------------------
 # Budgets
 # ---------------------------------------------------------------------------
 
@@ -923,6 +1138,7 @@ MENU_ITEMS = [
     ("menu_filter", filter_menu),
     ("menu_search", search_transactions),
     ("menu_report", report_menu),
+    ("menu_categories", category_menu),
     ("menu_budgets", budget_menu),
     ("menu_accounts", account_menu),
     ("menu_transfer", add_transfer),

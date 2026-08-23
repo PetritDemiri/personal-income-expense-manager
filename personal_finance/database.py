@@ -351,6 +351,7 @@ class Database:
         kind=None,
         account_id=None,
         category_id=None,
+        subcategory_id=None,
         search=None,
         limit=None,
     ):
@@ -382,6 +383,9 @@ class Database:
         if category_id is not None:
             clauses.append("t.category_id = ?")
             values.append(category_id)
+        if subcategory_id is not None:
+            clauses.append("t.subcategory_id = ?")
+            values.append(subcategory_id)
         if search:
             # Matched against the joined names too, so searching for a category
             # finds its transactions without the caller resolving it first.

@@ -26,6 +26,7 @@ from personal_finance.models import (
     name_key,
     parse_amount,
     parse_signed_amount,
+    valid_name,
 )
 from personal_finance.schema import EXPENSE, INCOME, TRANSFER
 
@@ -189,3 +190,66 @@ class TestRuleToTransaction:
             starts_on="01-01-2026",
         )
         assert rule.to_transaction(datetime.date(2026, 5, 1)).id is None
+
+
+class TestAmountRejectsWhatNobodyTypesOnPurpose:
+    """Decimal accepts several forms that are typos rather than intent."""
+
+    @pytest.mark.parametrize(
+        "bad,why",
+        [
+            ("3e2", "scientific notation"),
+            ("1_000", "Python underscore separator"),
+            ("١٢٣", "digits from another script"),
+            (".5", "no leading digit"),
+            ("5.", "no trailing digit"),
+            ("+5", "explicit sign"),
+            ("5,50", "comma as decimal separator"),
+            ("1 000", "space as thousands separator"),
+        ],
+    )
+    def test_rejected(self, bad, why):
+        assert parse_amount(bad) is None, why
+
+    @pytest.mark.parametrize("good", ["0", "5", "12.50", "1200.00", "  50  "])
+    def test_still_accepted(self, good):
+        assert parse_amount(good) is not None
+
+
+class TestValidName:
+    """Category and subcategory names are letters only."""
+
+    @pytest.mark.parametrize("name", ["Ushqim", "Qera", "Ëmbëlsira", "Çaji", "Shendetesi"])
+    def test_letters_are_accepted(self, name):
+        assert valid_name(name)
+
+    @pytest.mark.parametrize(
+        "name", ["Te tjera", "Paga baze", "Puna ekstra", "Shpenzime shtepiake"]
+    )
+    def test_single_spaces_between_words_are_accepted(self, name):
+        assert valid_name(name)
+
+    @pytest.mark.parametrize(
+        "name,why",
+        [
+            ("", "empty"),
+            ("   ", "spaces only"),
+            ("123", "digits only"),
+            ("Kredia2", "contains a digit"),
+            (" Ushqim", "leading space"),
+            ("Ushqim ", "trailing space"),
+            (" Ushqim ", "spaces both ends"),
+            ("Te  tjera", "two spaces between words"),
+            (" ", "a single space"),
+            ("a-b", "contains punctuation"),
+            ("@#", "symbols only"),
+            ("Ushqim!", "trailing punctuation"),
+        ],
+    )
+    def test_rejected(self, name, why):
+        assert not valid_name(name), why
+
+    def test_albanian_letters_count_as_letters(self):
+        """str.isalpha is Unicode-aware, so the whole alphabet passes."""
+        for letter in "abcçdefëfghijklmnopqrstuvxyz":
+            assert valid_name(letter), letter

@@ -54,12 +54,13 @@ Running with no flags opens the interactive menu:
 | 7 | Filtro sipas Dates | Filter by Date |
 | 8 | Kerko Transaksione | Search Transactions |
 | 9 | Raporti Mujor | Monthly Report |
-| 10 | Buxhetet | Budgets |
-| 11 | Llogarite | Accounts |
-| 12 | Transfero mes Llogarive | Transfer Between Accounts |
-| 13 | Transaksionet e Perseritura | Recurring Transactions |
-| 14 | Eksporto ne CSV | Export to CSV |
-| 15 | Dil nga programi | Exit |
+| 10 | Kategorite | Categories |
+| 11 | Buxhetet | Budgets |
+| 12 | Llogarite | Accounts |
+| 13 | Transfero mes Llogarive | Transfer Between Accounts |
+| 14 | Transaksionet e Perseritura | Recurring Transactions |
+| 15 | Eksporto ne CSV | Export to CSV |
+| 16 | Dil nga programi | Exit |
 
 Dates use `dd-mm-yyyy`. When editing, each prompt shows the current value in brackets — press Enter to keep it.
 
@@ -124,13 +125,31 @@ Two constraints are deliberately absent: there is no maximum amount, since any c
 
 ### Categories and subcategories
 
-Both are stored records. A name typed for the first time is created automatically, so entry never stalls on defining things up front. Suggestions are sorted in **Albanian alphabetical order**, following the full 36-letter alphabet including its nine digraphs:
+Both are stored records, managed from menu option 10 — view, add, rename, and delete, for categories and subcategories alike. A name typed for the first time while adding a transaction is still created automatically, so entry never stalls on defining things up front.
+
+Renaming is one row. Transactions reference a category by id, so the rename does not touch them. Deleting a category leaves its transactions uncategorised and takes its subcategories and any budget with it; the menu says how many transactions will be affected and asks before doing it.
+
+Suggestions are sorted in **Albanian alphabetical order**, following the full 36-letter alphabet including its nine digraphs:
 
 ```
 a b c ç d dh e ë f g gj h i j k l ll m n nj o p q r rr s sh t th u v x xh y z zh
 ```
 
 Each digraph is a letter in its own right, so every word beginning with S comes before every word beginning with Sh — `Sende`, `Sy`, then `Shendetesi`. Sorting by Unicode code point, which is what most languages do by default, interleaves them and pushes every accented word past Z.
+
+### Input rules
+
+Input is validated strictly, because a value that is quietly accepted and quietly wrong is worse than a rejection.
+
+**Amounts** are plain digits with an optional decimal point. Scientific notation, Python's underscore separators, and digits from other scripts are all rejected — `Decimal` accepts them, but nobody types them on purpose.
+
+**Dates** must be exactly `dd-mm-yyyy`, and must be real: 31 April, 29 February in a common year, month 13 and day 00 are all refused.
+
+**Yes and no** are exact lowercase, in the interface language only — `po`/`jo` in Albanian, `yes`/`no` in English. The input is compared exactly as typed, neither lowercased nor stripped, so `PO` and `" po "` are both refused.
+
+**Cancelling** a prompt takes a whole word in the interface language — `anulo` in Albanian, `cancel` in English — compared exactly as typed. Every prompt that offers it names the word.
+
+**Category and subcategory names** are letters with single spaces between words: `Ushqim`, `Te tjera`, `Paga baze`. No digits, no punctuation. Leading or trailing spaces, runs of spaces, and whitespace-only input are rejected rather than trimmed — a name the program quietly trimmed would not be the name you entered, and two names differing only by a space would look identical in a list. Pressing Enter still means "no category".
 
 ### Accounts
 

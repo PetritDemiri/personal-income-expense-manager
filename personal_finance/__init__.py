@@ -3,4 +3,4 @@
 A command-line personal finance manager with an Albanian interface.
 """
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"

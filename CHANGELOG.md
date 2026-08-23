@@ -5,10 +5,63 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Ten versions are recorded below. Nine of them were released; 2.0.0 was a
+Eleven versions are recorded below. Ten of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.1.0] — 2026-08-23
+
+### Added
+
+- A Categories menu: view, add, rename, and delete, for categories and
+  subcategories alike. Renaming is a single row, since transactions reference a
+  category by id. Deleting reports how many transactions will be affected and
+  asks before proceeding.
+
+### Changed
+
+- Category and subcategory names must be letters, with single spaces between
+  words: `Ushqim`, `Te tjera`, `Paga baze`. No digits and no punctuation.
+  Albanian letters count as letters. Leading or trailing spaces, runs of
+  spaces, and whitespace-only input are rejected as typed rather than trimmed
+  into acceptability — a name the program silently trimmed would not be the
+  name the user thought they entered, and two names differing only by a space
+  would look identical in a list. Pressing Enter still means "no category".
+- Amounts must be plain digits with an optional decimal point. Scientific
+  notation, Python's underscore separators, and digits from other scripts are
+  rejected; `Decimal` accepts all three, but nobody types them on purpose.
+- Dates must be exactly `dd-mm-yyyy`. The shape is checked before the calendar,
+  so `1-1-2026` is refused along with `31-04-2026` and `29-02-2026`.
+- Yes and no are exact lowercase and only in the interface language: `po`/`jo`
+  in Albanian, `yes`/`no` in English. The input is compared exactly as typed —
+  neither lowercased nor stripped — so `PO`, `Po` and `" po "` are all refused.
+  The `y` and `n` shortcuts are gone, and neither language accepts the other's
+  words.
+
+- Cancelling a prompt takes a whole word in the interface language — `anulo` in
+  Albanian, `cancel` in English — compared exactly as typed. It was the single
+  letter `a`, which collided with `a` as a legitimate category name: the
+  category could be created but never chosen for deletion, because the prompt
+  read the choice as a cancellation. Every prompt that offers cancelling now
+  names the word.
+
+### Fixed
+
+- A category or subcategory typed as spaces was stripped to nothing, read as
+  "no category", and reported as a success. It is now rejected.
+- A category named `a` could be created but not deleted or renamed, because the
+  single-letter cancel key shadowed it at every prompt that listed it.
+
+### Removed
+
+- The built-in category and subcategory suggestion tables. Categories became
+  stored records in 3.0.0 and are read from the database; the tables had been
+  dead since.
+
+### Notes
+
+- 580 tests, up from 479.
 
 ## [3.0.0] — 2026-08-19
 

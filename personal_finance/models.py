@@ -12,6 +12,7 @@ repository layer, not here, so a model is only ever holding the same kinds of
 value the rest of the program works with.
 """
 
+import re
 import unicodedata
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -41,6 +42,15 @@ def name_key(name):
     return unicodedata.normalize("NFC", (name or "").strip()).casefold()
 
 
+# Plain digits, optionally with a decimal point. Written out rather than left
+# to Decimal, which also accepts things nobody types on purpose: scientific
+# notation (3e2), Python's underscore separators (1_000), and digits from other
+# scripts. [0-9] rather than \d, because \d matches those other scripts too.
+AMOUNT_PATTERN = re.compile(r"^[0-9]+(?:\.[0-9]+)?$")
+# The same, with an optional leading minus, for an opening balance.
+SIGNED_AMOUNT_PATTERN = re.compile(r"^-?[0-9]+(?:\.[0-9]+)?$")
+
+
 def parse_amount(value, allow_zero=True):
     """Convert a value to a non-negative Decimal, or None if it is not one."""
     if value is None:
@@ -48,8 +58,11 @@ def parse_amount(value, allow_zero=True):
     if isinstance(value, Decimal):
         amount = value
     else:
+        text = str(value).strip()
+        if not AMOUNT_PATTERN.match(text):
+            return None
         try:
-            amount = Decimal(str(value).strip())
+            amount = Decimal(text)
         except (InvalidOperation, AttributeError, ValueError):
             return None
     if not amount.is_finite() or amount < 0:
@@ -57,6 +70,29 @@ def parse_amount(value, allow_zero=True):
     if amount == 0 and not allow_zero:
         return None
     return amount
+
+
+def valid_name(text):
+    """Whether a category or subcategory name is acceptable.
+
+    Letters, with single spaces between words: "Ushqim", "Te tjera",
+    "Paga baze". `str.isalpha` is Unicode-aware, so every Albanian letter
+    passes while digits and punctuation do not.
+
+    Rejected as typed rather than tidied up: leading or trailing spaces,
+    runs of spaces, and anything that is only whitespace. A name the program
+    silently trimmed would not be the name the user thought they had entered,
+    and two names differing only by a space would look identical in a list.
+    """
+    if not text:
+        return False
+    if text != text.strip():
+        return False
+    if "  " in text:
+        return False
+    if not any(character.isalpha() for character in text):
+        return False
+    return all(character.isalpha() or character == " " for character in text)
 
 
 def parse_signed_amount(value):
@@ -70,8 +106,11 @@ def parse_signed_amount(value):
     if isinstance(value, Decimal):
         amount = value
     else:
+        text = str(value).strip()
+        if not SIGNED_AMOUNT_PATTERN.match(text):
+            return None
         try:
-            amount = Decimal(str(value).strip())
+            amount = Decimal(text)
         except (InvalidOperation, AttributeError, ValueError):
             return None
     return amount if amount.is_finite() else None

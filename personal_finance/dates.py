@@ -6,6 +6,7 @@ defined in exactly one place.
 
 import calendar
 import datetime
+import re
 
 from .config import DATE_FORMAT, MONTH_FORMAT
 
@@ -20,12 +21,25 @@ def current_date_str():
     return format_date(today())
 
 
+# Exactly two digits, two digits, four digits. strptime alone accepts "1-1-2026"
+# and other shapes; the stored and displayed form is dd-mm-yyyy and nothing
+# else. [0-9] rather than \d so digits from other scripts do not slip through.
+DATE_PATTERN = re.compile(r"^[0-9]{2}-[0-9]{2}-[0-9]{4}$")
+
+
 def parse_date(date_str):
-    """Parse a dd-mm-yyyy string into a date, or return None if invalid."""
+    """Parse a dd-mm-yyyy string into a date, or return None if invalid.
+
+    The shape is checked first, then strptime does the calendar work - it is
+    what rejects 31 April and 29 February in a year that has no 29th.
+    """
     if not date_str:
         return None
+    text = str(date_str).strip()
+    if not DATE_PATTERN.match(text):
+        return None
     try:
-        return datetime.datetime.strptime(str(date_str).strip(), DATE_FORMAT).date()
+        return datetime.datetime.strptime(text, DATE_FORMAT).date()
     except (ValueError, TypeError):
         return None
 
