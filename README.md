@@ -98,6 +98,7 @@ Albanian flags are primary; English aliases work for all of them.
 | `--baza` | `--database` | Path to the database file |
 | `--gjuha` | `--language` | Interface language: `sq` (default) or `en` |
 | `--ndares` | `--delimiter` | Column delimiter for export (default `,`) |
+| `--detaje` | `--details` | Show when each row was recorded and last changed |
 | `--pa-ngjyra` | `--no-color` | Disable colored output |
 
 `--data` works by context: with `--lista` it filters to a single date; with `--shto-*` it sets the new transaction's date. Any field omitted when adding is prompted for interactively.
@@ -136,6 +137,12 @@ a b c ç d dh e ë f g gj h i j k l ll m n nj o p q r rr s sh t th u v x xh y z 
 ```
 
 Each digraph is a letter in its own right, so every word beginning with S comes before every word beginning with Sh — `Sende`, `Sy`, then `Shendetesi`. Sorting by Unicode code point, which is what most languages do by default, interleaves them and pushes every accented word past Z.
+
+### Timestamps
+
+Every row records when it was written and when it last changed. `--detaje` adds both to the listing; they are hidden otherwise, since two more columns on every row would crowd out the description.
+
+`updated_at` is maintained by database triggers rather than by the application. A column DEFAULT fires only on INSERT, so without them the column would record the creation time forever and quietly claim a row had never changed — and doing it in code would mean remembering it at every write site, including the raw SQL in the service layer.
 
 ### Input rules
 

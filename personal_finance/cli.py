@@ -209,6 +209,14 @@ def build_parser():
         help="Ndaresi i kolonave per eksportim / export delimiter",
     )
     output.add_argument(
+        "--detaje",
+        "--details",
+        action="store_true",
+        dest="detaje",
+        help="Shfaq kur u regjistrua dhe u ndryshua secili rresht "
+        "/ show when each row was recorded and last changed",
+    )
+    output.add_argument(
         "--pa-ngjyra",
         "--no-color",
         action="store_true",
@@ -537,7 +545,7 @@ def run_cli(app, args):
         rows, title, ok = selected_transactions(app, args)
         if not ok:
             return True
-        print_transactions(numbered(app.transactions(), rows), title)
+        print_transactions(numbered(app.transactions(), rows), title, show_times=args.detaje)
         if rows and (args.nga or args.deri or args.data or args.llogaria):
             print_summary(rows, calculate_totals(rows), t("filter_totals"))
         did_something = True

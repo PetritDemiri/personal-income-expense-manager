@@ -64,7 +64,7 @@ def money(amount):
     return f"{CURRENCY_SYMBOL}{amount:.2f}"
 
 
-def print_transactions(numbered, title=None):
+def print_transactions(numbered, title=None, show_times=False):
     """Print a table of (number, transaction) pairs.
 
     Numbers refer to positions in the full list, so a number shown in a
@@ -96,6 +96,13 @@ def print_transactions(numbered, title=None):
     head_sub = t("field_subcategory")
     head_account = t("field_account")
     head_amount = t("field_amount")
+    head_created = t("field_created")
+    head_updated = t("field_updated")
+
+    # Off unless asked for. Two more columns on every row would crowd out the
+    # description, and the answer is rarely the one being looked for.
+    created = {n: (x.created_at or "")[:16] for n, x in numbered}
+    updated = {n: (x.updated_at or "")[:16] for n, x in numbered}
 
     w_num = max(len(head_num) + 1, len(str(max(n for n, _ in numbered))) + 1)
     w_date = max(len(head_date), 10)
@@ -108,14 +115,21 @@ def print_transactions(numbered, title=None):
         max([len(head_account)] + [len(v) for v in accounts.values()]) if show_account else 0
     )
     w_amount = max([len(head_amount)] + [len(v) for v in amounts.values()])
+    w_created = max([len(head_created)] + [len(v) for v in created.values()]) if show_times else 0
+    w_updated = max([len(head_updated)] + [len(v) for v in updated.values()]) if show_times else 0
 
     sub_header = f"{head_sub:<{w_sub}} " if show_sub else ""
     account_header = f"{head_account:<{w_account}} " if show_account else ""
+    time_header = (
+        f"  {head_created:<{w_created}}  {head_updated:<{w_updated}}" if show_times else ""
+    )
     total = w_num + w_date + 1 + w_type + 1 + w_desc + 1 + w_cat + 1 + w_amount
     if show_sub:
         total += w_sub + 1
     if show_account:
         total += w_account + 1
+    if show_times:
+        total += w_created + w_updated + 4
 
     print(paint(f"\n{title}", BOLD, CYAN))
     print("-" * total)
@@ -123,7 +137,7 @@ def print_transactions(numbered, title=None):
         paint(
             f"{head_num:<{w_num}}{head_date:<{w_date}} {head_type:<{w_type}} "
             f"{head_desc:<{w_desc}} {head_cat:<{w_cat}} "
-            f"{sub_header}{account_header}{head_amount:>{w_amount}}",
+            f"{sub_header}{account_header}{head_amount:>{w_amount}}{time_header}",
             BOLD,
         )
     )
@@ -136,6 +150,8 @@ def print_transactions(numbered, title=None):
             f"{x.description:<{w_desc}} {categories[number]:<{w_cat}} "
             f"{sub_cell}{account_cell_text}{amounts[number]:>{w_amount}}"
         )
+        if show_times:
+            line += f"  {created[number]:<{w_created}}  {updated[number]:<{w_updated}}"
         print(paint(line, type_color(x.kind)))
     print("-" * total)
 

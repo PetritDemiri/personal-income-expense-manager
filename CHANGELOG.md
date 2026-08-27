@@ -5,10 +5,38 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Eleven versions are recorded below. Ten of them were released; 2.0.0 was a
+Twelve versions are recorded below. Eleven of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.2.0] — 2026-08-27
+
+### Added
+
+- `created_at` and `updated_at` are now maintained on every table and exposed
+  on the transaction view.
+- A `--detaje` flag adding when each row was recorded and last changed to the
+  listing. Off by default: two more columns on every row would crowd out the
+  description, and it is rarely the question being asked.
+- A migration runner. Version 3 started from an empty database and had no
+  upgrade path; there is real data now, so one was needed. A fresh file still
+  gets the whole schema at once and skips every step.
+
+### Changed
+
+- `updated_at` is maintained by database triggers rather than by the
+  application. A column DEFAULT fires only on INSERT, so the column previously
+  recorded the creation time forever and quietly claimed a row had never
+  changed. Doing it in code would have meant remembering it at each of eight
+  write sites, two of them raw SQL in the service layer that knows nothing
+  about timestamps.
+
+### Notes
+
+- Schema version 4. The migration is purely additive — it creates triggers and
+  rebuilds no table — so a database in daily use upgrades in place.
+- 601 tests, up from 580.
 
 ## [3.1.0] — 2026-08-23
 

@@ -462,3 +462,29 @@ class TestDatabaseFlag:
         main(["--baza", str(target), "--gjendja"])
         capsys.readouterr()
         assert target.exists()
+
+
+class TestDetailsFlag:
+    def test_timestamps_are_hidden_by_default(self, capsys):
+        add_expense()
+        capsys.readouterr()
+        main(["--lista"])
+        output = capsys.readouterr().out
+        assert "Regjistruar" not in output
+        assert "Ndryshuar" not in output
+
+    def test_the_flag_shows_them(self, capsys):
+        add_expense()
+        capsys.readouterr()
+        main(["--lista", "--detaje"])
+        output = capsys.readouterr().out
+        assert "Regjistruar" in output
+        assert "Ndryshuar" in output
+
+    def test_english_alias_and_headers(self, capsys):
+        add_expense()
+        capsys.readouterr()
+        main(["--gjuha", "en", "--list", "--details"])
+        output = capsys.readouterr().out
+        assert "Recorded" in output
+        assert "Changed" in output

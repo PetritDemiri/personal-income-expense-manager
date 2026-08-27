@@ -214,6 +214,10 @@ class TransactionView:
     subcategory: Optional[str] = None
     account: Optional[str] = None
     to_account: Optional[str] = None
+    # When the row was written and last changed. Maintained by the database,
+    # so they are read here and never set.
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
     @property
     def is_income(self):

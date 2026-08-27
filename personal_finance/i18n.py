@@ -90,6 +90,8 @@ MESSAGES = {
         "no_subcategory_display": "Pa nenkategori",
         "no_account_display": "Pa llogari",
         "field_amount": "Shuma",
+        "field_created": "Regjistruar",
+        "field_updated": "Ndryshuar",
         "field_frequency": "Frekuenca",
         # Adding
         "adding": "Duke shtuar {type}...",
@@ -330,6 +332,8 @@ MESSAGES = {
         "no_subcategory_display": "No subcategory",
         "no_account_display": "No account",
         "field_amount": "Amount",
+        "field_created": "Recorded",
+        "field_updated": "Changed",
         "field_frequency": "Frequency",
         "adding": "Adding {type}...",
         "ask_description": "Enter the description: ",

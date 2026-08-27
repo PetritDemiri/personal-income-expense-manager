@@ -28,7 +28,7 @@ from .models import (
     TransactionView,
     name_key,
 )
-from .schema import EXPENSE, create_schema
+from .schema import EXPENSE, SCHEMA_VERSION, create_schema, migrate
 
 CENTS = Decimal("0.01")
 
@@ -127,9 +127,21 @@ class Database:
         return self.connection.execute("PRAGMA user_version").fetchone()[0]
 
     def _ensure_schema(self):
-        if self.schema_version == 0:
-            with self.connection:
+        """Create the schema, or bring an existing database up to date.
+
+        A fresh file gets the whole schema at the current version and skips
+        every migration. An existing one runs only the steps it has not seen.
+        Both happen inside one transaction, so a half-applied upgrade cannot
+        be left behind.
+        """
+        version = self.schema_version
+        if version == SCHEMA_VERSION:
+            return
+        with self.connection:
+            if version == 0:
                 create_schema(self.connection)
+            else:
+                migrate(self.connection, version)
 
     def is_empty(self):
         for table in ("transactions", "accounts", "categories", "budgets"):
@@ -342,6 +354,8 @@ class Database:
             subcategory=row["subcategory_name"],
             account=row["account_name"],
             to_account=row["to_account_name"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )
 
     def transactions(
