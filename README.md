@@ -156,6 +156,18 @@ Rows that already exist are flagged as duplicates and deselected — shown rathe
 
 The import runs as one database transaction. A partial import cannot be told apart from a complete one, and re-running it would double whatever landed.
 
+### Bank statements
+
+A statement from TEB Sh.A. is recognised and read directly, in the HTML the bank emails. No conversion step, and no dependency — `html.parser` is standard library.
+
+Three things about that file would each break a reasonable parser. It is UTF-16 little-endian, so read as UTF-8 it yields no rows rather than an error. It contains six tables, two of them pages of deposit-insurance boilerplate, so the transactions are found by matching the header row rather than by position. And the totals row has one more cell than the header.
+
+**The statement is checked against its own arithmetic before anything is imported.** Every row carries the running balance, so applying each movement to the opening balance must reproduce the balance printed beside it — and the debit total, credit total and row count must match the ones the bank printed. A statement that fails any of these has been misread, and is refused rather than written. The rows that disagree are named.
+
+Cash deposits are recognised and imported as transfers rather than income, with the statement's account on the receiving side. Money moved from a pocket into a bank has not been earned, and putting the account on the wrong side would take the money out of the account the statement says it went into. The other side is left unassigned, which honestly says the cash came from somewhere not yet recorded.
+
+Account and card numbers are stripped from descriptions on the way in, along with masking asterisks, times of day, and trailing date stamps. What is left is what identifies the purchase; the rest would otherwise be stored forever and copied out through every export.
+
 ### Change history
 
 Every create, update and delete on a transaction, account, category, subcategory, recurring rule or budget is recorded: what changed, from what, to what, and when. Menu option 16 shows recent changes or the history of one transaction; `--historia` does the same from the command line, and `--historia 3` narrows it to the third transaction.

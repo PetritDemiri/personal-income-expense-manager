@@ -5,10 +5,48 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Fourteen versions are recorded below. Thirteen of them were released; 2.0.0 was a
+Fifteen versions are recorded below. Fourteen of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.5.0] — 2026-08-31
+
+### Added
+
+- Reading bank statements from TEB Sh.A. directly, in the HTML the bank emails.
+  No conversion step and no dependency: `html.parser` is standard library.
+- Checking a statement against its own arithmetic before importing. Every row
+  carries a running balance, so applying each movement to the opening balance
+  must reproduce the balance printed beside it, and the debit total, credit
+  total and row count must match those the bank printed. A statement failing
+  any of these is refused rather than written, and the rows that disagree are
+  named.
+- Recognition of the statement's own shape: UTF-16 little-endian encoding, six
+  tables of which two are legal boilerplate, an opening-balance row carrying
+  neither a debit nor a credit, and a totals row one cell wider than the
+  header. Each of those would break a parser that assumed otherwise, and the
+  UTF-16 one silently — read as UTF-8 the file yields no rows rather than an
+  error.
+- Stripping of account and card numbers, masking asterisks, times of day and
+  trailing date stamps from imported descriptions. What is left identifies the
+  purchase; the rest would be stored forever and copied out through every
+  export.
+
+### Fixed
+
+- Cash deposits were imported with the statement's account on the paying side,
+  which takes money out of the very account the statement says it went into.
+  Caught by the balance check on real data: the account came back 100 short of
+  the closing balance the bank printed.
+
+### Notes
+
+- Deposits import as transfers with the other side unassigned, which says
+  honestly that the cash came from somewhere the program does not track yet.
+- The test fixture is a statement with the real structure and formats but
+  invented data. Nothing real is in the repository.
+- 775 tests, up from 731.
 
 ## [3.4.0] — 2026-08-30
 

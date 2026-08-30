@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 
 from .accounts import balances_for, count_unassigned, find_account
 from .budgets import all_statuses
-from .colors import BOLD, CYAN, DIM, RED, YELLOW, paint, type_color
+from .colors import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint, type_color
 from .config import CLEAR_MARKER
 from .dates import (
     current_date_str,
@@ -25,6 +25,7 @@ from .dates import (
 )
 from .display import (
     category_path,
+    money,
     print_accounts,
     print_budget_warning,
     print_budgets,
@@ -866,6 +867,81 @@ def set_candidate_category(app, candidates, raw):
     candidate.category = category
 
 
+def report_reconciliation(result):
+    """Print whether the parse agreed with the bank's own totals."""
+    if result.ok:
+        print(paint(t("import_reconciled", count=result.checked), BOLD, GREEN))
+        return True
+
+    print(paint(t("import_reconcile_failed"), RED))
+    for date, computed, stated in result.mismatches[:5]:
+        print(paint(t("import_reconcile_row", date=date, computed=computed, stated=stated), RED))
+    if False in (result.debit_ok, result.credit_ok, result.count_ok):
+        print(
+            paint(
+                t(
+                    "import_reconcile_totals",
+                    debit="ok" if result.debit_ok is not False else "x",
+                    credit="ok" if result.credit_ok is not False else "x",
+                    count="ok" if result.count_ok is not False else "x",
+                ),
+                RED,
+            )
+        )
+    return False
+
+
+def import_statement(app, raw, path):
+    """Import a recognised bank statement.
+
+    Refuses outright when the arithmetic does not agree. A statement that does
+    not reconcile has been misread somewhere, and the mistake would be money
+    that is wrong in a way nothing later reveals.
+    """
+    from .statements import parse_statement, reconcile, to_candidates
+
+    print(paint(t("import_statement_found"), BOLD, CYAN))
+    statement = parse_statement(raw)
+    if statement.opening is not None:
+        print(paint(t("import_opening", amount=money(statement.opening)), DIM))
+
+    if not report_reconciliation(reconcile(statement)):
+        print(paint(t("import_refused"), YELLOW))
+        return
+
+    account_id = None
+    if app.has_accounts():
+        print(paint(f"\n{t('import_ask_account')}", BOLD))
+        account_id = prompt_account(app)
+
+    candidates = to_candidates(statement, account_id=account_id)
+    print(paint(t("import_deposits_note"), DIM))
+    mark_duplicates_for(app, candidates)
+
+    if not preview_loop(app, candidates, ".", "dd/mm/yyyy"):
+        print(paint(t("import_cancelled"), YELLOW))
+        return
+
+    finish_import(app, candidates)
+
+
+def mark_duplicates_for(app, candidates):
+    from .importing import mark_duplicates
+
+    mark_duplicates(candidates, app.transactions())
+
+
+def finish_import(app, candidates):
+    from .importing import commit
+
+    try:
+        count = commit(app, candidates)
+    except Exception as error:
+        print(paint(t("import_failed", error=error), RED))
+        return
+    print(paint(t("import_done", count=count), BOLD))
+
+
 def import_from_file(app, path=None):
     """Read a file, show what it contains, and import what is approved.
 
@@ -876,7 +952,6 @@ def import_from_file(app, path=None):
     from .importing import (
         ImportError_,
         build_candidates,
-        commit,
         guess_columns,
         has_usable_amount,
         mark_duplicates,
@@ -890,10 +965,27 @@ def import_from_file(app, path=None):
         print(t("cancelled"))
         return
 
+    from .statements import looks_like_teb
+
     try:
         with open(path, "rb") as handle:
-            header, rows, _encoding = read_rows(handle.read())
-    except (OSError, ImportError_) as error:
+            raw = handle.read()
+    except OSError as error:
+        print(paint(t("import_failed", error=error), RED))
+        return
+
+    # A bank statement is read by its own reader, which knows the column
+    # meanings and can check itself against the totals printed on it.
+    if looks_like_teb(raw):
+        try:
+            import_statement(app, raw, path)
+        except ImportError_ as error:
+            print(paint(t("import_failed", error=error), RED))
+        return
+
+    try:
+        header, rows, _encoding = read_rows(raw)
+    except ImportError_ as error:
         print(paint(t("import_failed", error=error), RED))
         return
 
@@ -920,12 +1012,7 @@ def import_from_file(app, path=None):
         print(paint(t("import_cancelled"), YELLOW))
         return
 
-    try:
-        count = commit(app, candidates)
-    except Exception as error:
-        print(paint(t("import_failed", error=error), RED))
-        return
-    print(paint(t("import_done", count=count), BOLD))
+    finish_import(app, candidates)
 
 
 # ---------------------------------------------------------------------------
