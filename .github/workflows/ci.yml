@@ -17,7 +17,7 @@ jobs:
         # A CLI tool should keep working on the platforms people actually run
         # it on, and the atomic-write path differs between POSIX and Windows.
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.9', '3.11', '3.13']
+        python-version: ['3.9', '3.11', '3.13', '3.14']
         exclude:
           # Keep the matrix small: one Python version is enough on the
           # non-Linux runners to catch platform-specific breakage.
