@@ -28,6 +28,7 @@ from .display import (
     print_accounts,
     print_budget_warning,
     print_budgets,
+    print_history,
     print_monthly_report,
     print_recurring,
     print_summary,
@@ -766,6 +767,41 @@ def account_menu(app):
 
 
 # ---------------------------------------------------------------------------
+# History
+# ---------------------------------------------------------------------------
+
+
+def show_recent_history(app):
+    print_history(app.history(limit=25), names=app.reference_names())
+
+
+def show_transaction_history(app):
+    """Pick a transaction and show everything that has happened to it."""
+    chosen = pick(app, t("ask_number_edit"))
+    if chosen is None:
+        return
+    entries = app.transaction_history(chosen.id)
+    print_history(entries, t("history_for", number=chosen.id), names=app.reference_names())
+
+
+def history_menu(app):
+    print(paint(f"\n{t('menu_history')}:", BOLD, CYAN))
+    print(f"1. {t('history_menu_recent')}")
+    print(f"2. {t('history_menu_one')}")
+    print(f"3. {t('back')}")
+
+    choice = prompt_menu_choice(1, 3)
+    if choice == "1":
+        show_recent_history(app)
+    elif choice == "2":
+        show_transaction_history(app)
+    elif choice == "3":
+        return
+    else:
+        print(paint(t("invalid_choice", low=1, high=3), RED))
+
+
+# ---------------------------------------------------------------------------
 # Categories
 # ---------------------------------------------------------------------------
 
@@ -1144,6 +1180,7 @@ MENU_ITEMS = [
     ("menu_transfer", add_transfer),
     ("menu_recurring", recurring_menu),
     ("menu_export", export_to_csv),
+    ("menu_history", history_menu),
     ("menu_exit", None),
 ]
 

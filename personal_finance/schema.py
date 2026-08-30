@@ -44,7 +44,7 @@ and the hand-edited CSV files that once made unvalidated values possible are
 gone.
 """
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Transaction types, as stored. Repeated in the CHECK constraints below so the
 # database rejects anything else regardless of what the application believes.
@@ -153,51 +153,6 @@ CREATE TABLE audit_log (
     at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
--- updated_at is maintained by the database rather than by the code. A column
--- DEFAULT fires only on INSERT, so without these the column would record the
--- creation time forever and quietly claim a row had never changed.
---
--- Triggers rather than eight UPDATE statements: the writes are spread across
--- two modules, two of them raw SQL, and one forgotten site would be invisible.
---
--- The WHEN guard stops the trigger firing on its own write, and lets a caller
--- set updated_at explicitly when it needs to.
-CREATE TRIGGER touch_transactions AFTER UPDATE ON transactions FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE transactions SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER touch_accounts AFTER UPDATE ON accounts FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE accounts SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER touch_categories AFTER UPDATE ON categories FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE categories SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER touch_subcategories AFTER UPDATE ON subcategories FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE subcategories SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER touch_recurring_rules AFTER UPDATE ON recurring_rules FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE recurring_rules SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER touch_budgets AFTER UPDATE ON budgets FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE budgets SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
 CREATE INDEX idx_transactions_date       ON transactions(occurred_on);
 CREATE INDEX idx_transactions_kind_date  ON transactions(kind, occurred_on);
 CREATE INDEX idx_transactions_category   ON transactions(category_id);
@@ -208,45 +163,120 @@ CREATE INDEX idx_audit_entity            ON audit_log(entity, entity_id);
 """
 
 
-# Every table that carries an updated_at, and therefore a touch trigger.
-TOUCHED_TABLES = (
-    "transactions",
-    "accounts",
-    "categories",
-    "subcategories",
-    "recurring_rules",
-    "budgets",
-)
+# Every audited table, and the columns worth recording. created_at, updated_at
+# and the name_key columns are left out: they are bookkeeping rather than
+# anything the user entered, and including updated_at would make every entry
+# show a timestamp change on top of the real one.
+AUDITED_TABLES = {
+    "transactions": (
+        "kind",
+        "description",
+        "amount_cents",
+        "occurred_on",
+        "category_id",
+        "subcategory_id",
+        "account_id",
+        "to_account_id",
+    ),
+    "accounts": ("name", "kind", "opening_cents", "position"),
+    "categories": ("name", "kind"),
+    "subcategories": ("name", "category_id"),
+    "recurring_rules": (
+        "kind",
+        "description",
+        "amount_cents",
+        "category_id",
+        "subcategory_id",
+        "account_id",
+        "to_account_id",
+        "frequency",
+        "starts_on",
+        "generated_upto",
+    ),
+    "budgets": ("category_id", "limit_cents"),
+}
 
-TOUCH_TRIGGER = """
-CREATE TRIGGER IF NOT EXISTS touch_{table} AFTER UPDATE ON {table} FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
+# Tables carrying an updated_at, maintained by the update trigger below.
+TOUCHED_TABLES = tuple(AUDITED_TABLES)
+
+
+def _json_of(alias, columns):
+    """A json_object() call over one row of a trigger, OLD or NEW."""
+    pairs = ", ".join(f"'{column}', {alias}.{column}" for column in columns)
+    return f"json_object({pairs})"
+
+
+def audit_triggers(table, columns):
+    """The three triggers that record every change to one table.
+
+    The update trigger also advances updated_at, rather than leaving that to a
+    separate trigger. Two triggers on the same UPDATE means the second fires
+    again on the first one's write - measured, that produced two audit entries
+    for every edit. One trigger cannot re-fire itself while recursive_triggers
+    is off, which is SQLite's default, so a single logical change records
+    exactly one entry.
+    """
+    new_json = _json_of("NEW", columns)
+    old_json = _json_of("OLD", columns)
+    return f"""
+CREATE TRIGGER IF NOT EXISTS audit_{table}_insert AFTER INSERT ON {table}
+FOR EACH ROW
 BEGIN
+    INSERT INTO audit_log (entity, entity_id, action, before_json, after_json)
+    VALUES ('{table}', NEW.id, 'create', NULL, {new_json});
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_{table}_update AFTER UPDATE ON {table}
+FOR EACH ROW
+BEGIN
+    INSERT INTO audit_log (entity, entity_id, action, before_json, after_json)
+    VALUES ('{table}', NEW.id, 'update', {old_json}, {new_json});
     UPDATE {table} SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_{table}_delete AFTER DELETE ON {table}
+FOR EACH ROW
+BEGIN
+    INSERT INTO audit_log (entity, entity_id, action, before_json, after_json)
+    VALUES ('{table}', OLD.id, 'delete', {old_json}, NULL);
 END;
 """
 
 
-def _migration_4(connection):
-    """Add the touch triggers to a database created before they existed.
+def all_audit_triggers():
+    """Every audit trigger, as one script."""
+    return "".join(audit_triggers(table, columns) for table, columns in AUDITED_TABLES.items())
 
-    Purely additive - no table is rebuilt and no row is touched, so a database
-    that has been in daily use upgrades in place.
+
+def _migration_4(connection):
+    """Timestamp triggers. Superseded by migration 5, which folds them in."""
+    return
+
+
+def _migration_5(connection):
+    """Record every change, and fold the timestamp bump into the same trigger.
+
+    The standalone touch triggers from version 4 are dropped: leaving them
+    beside the audit triggers would record two entries for every edit, the
+    second describing nothing but the timestamp the first one caused.
     """
-    for table in TOUCHED_TABLES:
-        connection.executescript(TOUCH_TRIGGER.format(table=table))
+    for table in AUDITED_TABLES:
+        connection.execute(f"DROP TRIGGER IF EXISTS touch_{table}")
+    connection.executescript(all_audit_triggers())
 
 
 # Keyed by the version each step brings the database up to. A database created
 # fresh gets the whole schema at SCHEMA_VERSION and skips these entirely.
 MIGRATIONS = {
     4: _migration_4,
+    5: _migration_5,
 }
 
 
 def create_schema(connection):
     """Create every table, index and trigger, and record the schema version."""
     connection.executescript(SCHEMA)
+    connection.executescript(all_audit_triggers())
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 

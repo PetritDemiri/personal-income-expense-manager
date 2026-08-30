@@ -488,3 +488,64 @@ class TestDetailsFlag:
         output = capsys.readouterr().out
         assert "Recorded" in output
         assert "Changed" in output
+
+
+class TestHistoryFlag:
+    def test_shows_recent_changes(self, capsys):
+        add_expense()
+        capsys.readouterr()
+        main(["--historia"])
+        output = capsys.readouterr().out
+        assert "Historiku i ndryshimeve" in output
+        assert "Shtuar" in output
+
+    def test_an_empty_log_says_so(self, capsys):
+        main(["--historia"])
+        assert "asnje ndryshim" in capsys.readouterr().out
+
+    def test_money_is_shown_in_euros_not_cents(self, capsys):
+        add_expense("Qera", "300", "01-06-2026")
+        capsys.readouterr()
+        main(["--historia"])
+        output = capsys.readouterr().out
+        assert "€300.00" in output
+        assert "30000" not in output
+
+    def test_filtering_to_one_transaction(self, capsys):
+        add_expense("Qera", "300", "01-06-2026")
+        add_expense("Ushqime", "50", "02-06-2026", "Ushqim")
+        capsys.readouterr()
+        main(["--historia", "1"])
+        output = capsys.readouterr().out
+        assert "Qera" in output
+        assert "Ushqime" not in output
+
+    def test_an_out_of_range_number_is_rejected(self, capsys):
+        add_expense()
+        capsys.readouterr()
+        main(["--historia", "99"])
+        assert "pavlefshem" in capsys.readouterr().out.lower()
+
+    def test_english_alias_and_labels(self, capsys):
+        add_expense()
+        capsys.readouterr()
+        main(["--gjuha", "en", "--history"])
+        output = capsys.readouterr().out
+        assert "Change history" in output
+        assert "Added" in output
+
+    def test_editing_shows_only_what_changed(self, capsys):
+        """One entry per edit, listing one field."""
+        from personal_finance.app import FinanceApp
+        from personal_finance.config import DATABASE_FILE, data_path
+
+        add_expense("Qera", "300", "01-06-2026")
+        app = FinanceApp(path=data_path(DATABASE_FILE), quiet=True)
+        app.update_transaction(app.transactions()[0].id, amount=Decimal("350"))
+        app.close()
+        capsys.readouterr()
+
+        main(["--historia"])
+        output = capsys.readouterr().out
+        assert output.count("Ndryshuar transaksion") == 1
+        assert "€300.00  ->  €350.00" in output

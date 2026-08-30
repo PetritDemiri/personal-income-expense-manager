@@ -265,6 +265,63 @@ class RecurringRule:
 
 
 @dataclass
+class AuditEntry:
+    """One recorded change: what, which row, when, and the row either side.
+
+    Written by database triggers, never by this program, so it is only ever
+    read. `before` is None on a create and `after` is None on a delete.
+    """
+
+    id: int
+    entity: str
+    entity_id: Optional[int]
+    action: str
+    at: str
+    before: Optional[dict] = None
+    after: Optional[dict] = None
+
+    @classmethod
+    def from_row(cls, row):
+        import json
+
+        def decode(text):
+            if not text:
+                return None
+            try:
+                return json.loads(text)
+            except (ValueError, TypeError):
+                return None
+
+        return cls(
+            id=row["id"],
+            entity=row["entity"],
+            entity_id=row["entity_id"],
+            action=row["action"],
+            at=row["at"],
+            before=decode(row["before_json"]),
+            after=decode(row["after_json"]),
+        )
+
+    def changes(self):
+        """Fields that differ, as (field, before, after).
+
+        The whole row is stored either side, which survives a schema change
+        and keeps the trigger simple; the difference is worked out here, where
+        it is cheap and only needed for display.
+        """
+        if self.action == "create":
+            return [(key, None, value) for key, value in sorted((self.after or {}).items())]
+        if self.action == "delete":
+            return [(key, value, None) for key, value in sorted((self.before or {}).items())]
+        before, after = self.before or {}, self.after or {}
+        return [
+            (key, before.get(key), after.get(key))
+            for key in sorted(set(before) | set(after))
+            if before.get(key) != after.get(key)
+        ]
+
+
+@dataclass
 class Budget:
     """A monthly spending limit on one category."""
 

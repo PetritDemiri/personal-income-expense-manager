@@ -455,3 +455,111 @@ def print_accounts(balances, show_total=True):
     if show_total:
         combined = sum((b.balance for b in balances), ZERO)
         print(f"{t('account_total')}{paint(money(combined), BOLD, amount_color(combined))}")
+
+
+def action_label(action):
+    """Display label for a recorded action."""
+    return t(f"action_{action}")
+
+
+def entity_label(entity):
+    """Display label for the kind of thing that changed."""
+    return t(f"entity_{entity}")
+
+
+# Database column names, mapped to the label the rest of the program uses for
+# the same thing. The history reads a row as the database stores it, which is
+# not how anyone wants to read it.
+_FIELD_LABELS = {
+    "kind": "field_type",
+    "description": "field_description",
+    "amount_cents": "field_amount",
+    "occurred_on": "field_date",
+    "category_id": "field_category",
+    "subcategory_id": "field_subcategory",
+    "account_id": "field_account",
+    "to_account_id": "field_destination",
+    "name": "field_name",
+    "opening_cents": "field_opening",
+    "position": "field_position",
+    "frequency": "field_frequency",
+    "starts_on": "field_start",
+    "generated_upto": "field_generated",
+    "limit_cents": "field_limit",
+}
+
+# Columns holding money, so the log shows euros rather than raw cents.
+_CENT_FIELDS = ("amount_cents", "opening_cents", "limit_cents")
+
+# Columns holding a reference, so the log can show the name instead of the id.
+_REFERENCE_FIELDS = {
+    "category_id": "categories",
+    "subcategory_id": "subcategories",
+    "account_id": "accounts",
+    "to_account_id": "accounts",
+}
+
+
+def field_label(field):
+    """The display label for a database column, or the column name itself."""
+    key = _FIELD_LABELS.get(field)
+    return t(key) if key else field
+
+
+def audit_value(field, value, names=None):
+    """One side of a change, formatted for reading.
+
+    Cents become euros, ISO dates become dd-mm-yyyy, and a reference becomes
+    the name of the thing it points at. An id is shown only when the row it
+    referred to has since been deleted, since there is no name left to give.
+    """
+    if value is None:
+        return "-"
+    if field in _CENT_FIELDS:
+        return money((Decimal(int(value)) / 100).quantize(Decimal("0.01")))
+    if field == "occurred_on" or field in ("starts_on", "generated_upto"):
+        from .database import from_iso
+
+        return from_iso(value) or str(value)
+    if field in _REFERENCE_FIELDS and names:
+        lookup = names.get(_REFERENCE_FIELDS[field], {})
+        return lookup.get(value, f"#{value}")
+    if field == "kind":
+        from .i18n import type_label
+
+        return type_label(value)
+    return str(value)
+
+
+def print_history(entries, title=None, names=None):
+    """Print recorded changes, newest first, with what differed on each.
+
+    `names` maps each referenced table to {id: name}, so a change of category
+    reads as a category rather than as a number.
+    """
+    if not entries:
+        print(paint(f"\n{t('no_history')}", YELLOW))
+        return
+
+    print(paint(f"\n{title or t('history_title')}", BOLD, CYAN))
+    for entry in entries:
+        heading = (
+            f"{entry.at}  {action_label(entry.action)} "
+            f"{entity_label(entry.entity)} #{entry.entity_id}"
+        )
+        print(paint(heading, BOLD))
+
+        changes = entry.changes()
+        if not changes:
+            continue
+        labels = {field: field_label(field) for field, _, _ in changes}
+        width = max(len(value) for value in labels.values())
+        for field, before, after in changes:
+            shown_before = audit_value(field, before, names)
+            shown_after = audit_value(field, after, names)
+            print(
+                paint(
+                    f"    {labels[field]:<{width}}  {shown_before}  ->  {shown_after}",
+                    DIM,
+                )
+            )

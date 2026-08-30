@@ -5,10 +5,53 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Twelve versions are recorded below. Eleven of them were released; 2.0.0 was a
+Thirteen versions are recorded below. Twelve of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.3.0] — 2026-08-28
+
+Completes the scope set out for 3.0.0.
+
+### Added
+
+- A change history. Every create, update and delete on a transaction, account,
+  category, subcategory, recurring rule or budget is recorded: what changed,
+  from what, to what, and when.
+- Menu option 16 and a `--historia` flag, both showing recent changes or the
+  history of one transaction.
+- The history reads in the interface language rather than in database column
+  names: `occurred_on` shows as `Data`, `amount_cents` as `Shuma`. Money is
+  shown in euros rather than the raw cents the database holds, dates in
+  `dd-mm-yyyy`, and a changed category or account as its name rather than its
+  id — falling back to the id only when the row it pointed at has since been
+  deleted.
+
+### Changed
+
+- The audit trigger also advances `updated_at`, replacing the separate
+  timestamp triggers from 3.2.0. Measured during design, two triggers on one
+  UPDATE recorded two entries for every edit — the change, then the timestamp
+  the change caused. A trigger cannot re-fire itself while `recursive_triggers`
+  is off, which is SQLite's default, so one trigger records exactly one entry.
+
+### Notes
+
+- Written by database triggers rather than by the application. The writes are
+  spread across two modules and two of them are raw SQL, so a missed site would
+  leave a silent gap in a record whose whole value is being complete.
+- The whole row is stored either side of a change, and the difference is worked
+  out at display time. Simpler in the trigger, survives a schema change, and
+  the redundancy is affordable.
+- `created_at` and `updated_at` are excluded from the record, so an entry shows
+  the change rather than the change plus the timestamp it caused.
+- The log is append-only and never pruned. Nothing in the program writes to it
+  directly or deletes from it.
+- Schema version 5. The migration drops the timestamp triggers and adds the
+  audit triggers; no table is rebuilt, so a database in daily use upgrades in
+  place. Changes made before the upgrade have no history, and none is invented.
+- 650 tests, up from 601.
 
 ## [3.2.0] — 2026-08-27
 

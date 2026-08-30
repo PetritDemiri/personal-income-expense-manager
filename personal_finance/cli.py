@@ -20,6 +20,7 @@ from .display import (
     print_accounts,
     print_budget_warning,
     print_budgets,
+    print_history,
     print_monthly_report,
     print_recurring,
     print_summary,
@@ -51,6 +52,7 @@ ACTION_FLAGS = (
     "cakto_pa_llogari",
     "transfero",
     "eksporto",
+    "historia",
 )
 
 
@@ -171,6 +173,16 @@ def build_parser():
         dest="eksporto",
         metavar="SKEDARI",
         help="Eksporto ne nje skedar CSV / export to CSV",
+    )
+    actions.add_argument(
+        "--historia",
+        "--history",
+        dest="historia",
+        nargs="?",
+        const="",
+        metavar="NUMRI",
+        help="Shfaq historikun e ndryshimeve; me nje numer, vetem ate "
+        "transaksion / show the change history",
     )
 
     fields = parser.add_argument_group("fushat dhe filtrat / fields and filters")
@@ -482,6 +494,30 @@ def do_export(app, args):
     print(paint(t("exported", count=count, path=written_to), BOLD))
 
 
+def do_history(app, args):
+    """Show recorded changes, optionally for one transaction."""
+    names = app.reference_names()
+    if not args.historia:
+        print_history(app.history(limit=25), names=names)
+        return
+
+    rows = app.transactions()
+    try:
+        position = int(args.historia)
+        if position < 1 or position > len(rows):
+            raise ValueError
+    except ValueError:
+        print(paint(t("invalid_number"), RED))
+        return
+
+    chosen = rows[position - 1]
+    print_history(
+        app.transaction_history(chosen.id),
+        t("history_for", number=chosen.id),
+        names=names,
+    )
+
+
 def do_report(app, args):
     if args.muaji:
         parsed = parse_month(args.muaji)
@@ -574,6 +610,10 @@ def run_cli(app, args):
 
     if args.raporti:
         do_report(app, args)
+        did_something = True
+
+    if args.historia is not None:
+        do_history(app, args)
         did_something = True
 
     if args.gjendja:

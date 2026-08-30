@@ -60,7 +60,8 @@ Running with no flags opens the interactive menu:
 | 13 | Transfero mes Llogarive | Transfer Between Accounts |
 | 14 | Transaksionet e Perseritura | Recurring Transactions |
 | 15 | Eksporto ne CSV | Export to CSV |
-| 16 | Dil nga programi | Exit |
+| 16 | Historiku i Ndryshimeve | Change History |
+| 17 | Dil nga programi | Exit |
 
 Dates use `dd-mm-yyyy`. When editing, each prompt shows the current value in brackets — press Enter to keep it.
 
@@ -86,6 +87,7 @@ Albanian flags are primary; English aliases work for all of them.
 | `--perseritjet` | `--list-recurring` | List recurring rules |
 | `--kerko` | `--search` | Search descriptions, categories, and subcategories |
 | `--eksporto` | `--export` | Export transactions to a CSV file |
+| `--historia` | `--history` | Show the change history, optionally for one transaction |
 | `--pershkrimi` | `--description` | Description for a new transaction |
 | `--shuma` | `--amount` | Amount for a new transaction |
 | `--data` | `--date` | Date (`dd-mm-yyyy`) |
@@ -138,11 +140,23 @@ a b c ç d dh e ë f g gj h i j k l ll m n nj o p q r rr s sh t th u v x xh y z 
 
 Each digraph is a letter in its own right, so every word beginning with S comes before every word beginning with Sh — `Sende`, `Sy`, then `Shendetesi`. Sorting by Unicode code point, which is what most languages do by default, interleaves them and pushes every accented word past Z.
 
+### Change history
+
+Every create, update and delete on a transaction, account, category, subcategory, recurring rule or budget is recorded: what changed, from what, to what, and when. Menu option 16 shows recent changes or the history of one transaction; `--historia` does the same from the command line, and `--historia 3` narrows it to the third transaction.
+
+The record is written by database triggers rather than by the application. The writes are spread across two modules and two of them are raw SQL, so a missed site would leave a silent gap in a record whose whole value is being complete — and a trigger cannot be forgotten.
+
+The whole row is stored either side of a change and the difference worked out at display time. That keeps the trigger simple and survives a schema change, at the cost of some redundancy the log can easily afford.
+
+One trigger per table per action, and the update trigger also advances `updated_at`. A separate timestamp trigger beside it recorded two entries for every edit — the change, then the timestamp the change caused.
+
+The log is append-only and never pruned. Nothing in the program writes to it directly or deletes from it.
+
 ### Timestamps
 
 Every row records when it was written and when it last changed. `--detaje` adds both to the listing; they are hidden otherwise, since two more columns on every row would crowd out the description.
 
-`updated_at` is maintained by database triggers rather than by the application. A column DEFAULT fires only on INSERT, so without them the column would record the creation time forever and quietly claim a row had never changed — and doing it in code would mean remembering it at every write site, including the raw SQL in the service layer.
+`updated_at` is maintained by the same trigger that records the change. A column DEFAULT fires only on INSERT, so without it the column would record the creation time forever and quietly claim a row had never changed.
 
 ### Input rules
 

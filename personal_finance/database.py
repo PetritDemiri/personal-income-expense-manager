@@ -21,6 +21,7 @@ from decimal import Decimal
 from .dates import parse_date
 from .models import (
     Account,
+    AuditEntry,
     Budget,
     Category,
     RecurringRule,
@@ -607,6 +608,31 @@ class Database:
     def delete_budget(self, category_id):
         with self.connection as conn:
             conn.execute("DELETE FROM budgets WHERE category_id = ?", (category_id,))
+
+    # -- audit log ---------------------------------------------------------
+
+    def audit_entries(self, entity=None, entity_id=None, limit=50):
+        """Recent changes, newest first.
+
+        Narrow to one row by passing both entity and entity_id - "what has
+        happened to this transaction?" is the question this is usually asked.
+        """
+        clauses, values = [], []
+        if entity is not None:
+            clauses.append("entity = ?")
+            values.append(entity)
+        if entity_id is not None:
+            clauses.append("entity_id = ?")
+            values.append(entity_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = (
+            "SELECT id, entity, entity_id, action, before_json, after_json, at "
+            f"FROM audit_log {where} ORDER BY id DESC LIMIT {int(limit)}"
+        )
+        return [AuditEntry.from_row(row) for row in self.connection.execute(sql, values)]
+
+    def audit_count(self):
+        return self.connection.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
 
     # -- aggregate queries -------------------------------------------------
 

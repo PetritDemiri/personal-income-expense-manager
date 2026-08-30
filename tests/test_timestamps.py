@@ -30,13 +30,14 @@ def stamps(db, table, row_id):
 
 
 class TestSchema:
-    def test_every_touched_table_has_a_trigger(self, db):
+    def test_every_touched_table_has_an_update_trigger(self, db):
+        """The update trigger carries the timestamp bump since 3.3.0."""
         names = {
             row[0]
             for row in db.connection.execute("SELECT name FROM sqlite_master WHERE type='trigger'")
         }
         for table in TOUCHED_TABLES:
-            assert f"touch_{table}" in names, table
+            assert f"audit_{table}_update" in names, table
 
     def test_every_touched_table_actually_has_the_columns(self, db):
         for table in TOUCHED_TABLES:
@@ -138,11 +139,13 @@ class TestMigrationFromVersionThree:
 
     @staticmethod
     def build_v3(path):
-        """A database exactly as 3.1.0 left it: full schema, no triggers."""
+        """A database exactly as 3.1.0 left it: tables and indexes, no triggers.
+
+        SCHEMA is that on its own now - every trigger is generated separately
+        and applied by create_schema.
+        """
         connection = sqlite3.connect(path)
-        start = SCHEMA.index("-- updated_at is maintained")
-        end = SCHEMA.index("CREATE INDEX idx_transactions_date")
-        connection.executescript(SCHEMA[:start] + SCHEMA[end:])
+        connection.executescript(SCHEMA)
         connection.execute("PRAGMA user_version = 3")
         connection.execute(
             "INSERT INTO accounts (name,name_key,kind,opening_cents) "
@@ -204,7 +207,7 @@ class TestMigrationFromVersionThree:
             list(second.connection.execute("SELECT name FROM sqlite_master WHERE type='trigger'"))
         )
         assert second.schema_version == SCHEMA_VERSION
-        assert triggers == len(TOUCHED_TABLES)
+        assert triggers == len(TOUCHED_TABLES) * 3
         second.close()
 
     def test_a_fresh_database_skips_the_migrations(self, tmp_path):

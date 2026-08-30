@@ -268,6 +268,32 @@ class FinanceApp:
             transaction,
         )
 
+    # -- history -----------------------------------------------------------
+
+    def history(self, entity=None, entity_id=None, limit=50):
+        """Recorded changes, newest first."""
+        return self.db.audit_entries(entity=entity, entity_id=entity_id, limit=limit)
+
+    def reference_names(self):
+        """Every referenced row's name, keyed by table then id.
+
+        Passed to the history display so a change of category reads as a
+        category name rather than as a number.
+        """
+        return {
+            "categories": {c.id: c.name for c in self.db.categories()},
+            "accounts": {a.id: a.name for a in self.db.accounts()},
+            "subcategories": {
+                s.id: s.name
+                for category in self.db.categories()
+                for s in self.db.subcategories(category.id)
+            },
+        }
+
+    def transaction_history(self, transaction_id, limit=50):
+        """Everything that has happened to one transaction."""
+        return self.db.audit_entries(entity="transactions", entity_id=transaction_id, limit=limit)
+
     # -- recurring ---------------------------------------------------------
 
     def recurring_rules(self):
