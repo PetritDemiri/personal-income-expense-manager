@@ -28,6 +28,7 @@ from .display import (
     print_accounts,
     print_budget_warning,
     print_budgets,
+    print_candidates,
     print_history,
     print_monthly_report,
     print_recurring,
@@ -767,6 +768,167 @@ def account_menu(app):
 
 
 # ---------------------------------------------------------------------------
+# Importing
+# ---------------------------------------------------------------------------
+
+# Words typed at the preview, in either language, so the loop reads naturally
+# whichever the interface is set to.
+SELECT_ALL_WORDS = ("te gjitha", "all")
+SELECT_NONE_WORDS = ("asnje", "none")
+CONFIRM_WORDS = ("importo", "import")
+CATEGORY_PREFIXES = ("k ", "c ")
+
+
+def ask_import_columns(header, mapping):
+    """Ask which column holds anything that was not recognised."""
+    print(paint(f"\n{t('import_columns_found', columns=', '.join(sorted(mapping)))}", DIM))
+    print()
+    for index, name in enumerate(header, start=1):
+        print(f"  {index}. {name}")
+
+    for role in ("date", "amount", "description"):
+        if role in mapping:
+            continue
+        if role == "amount" and ("debit" in mapping or "credit" in mapping):
+            continue
+        while True:
+            raw = input(t("import_which_column", role=role)).strip()
+            if raw == "0":
+                break
+            if raw.isdigit() and 1 <= int(raw) <= len(header):
+                mapping[role] = int(raw) - 1
+                break
+            print(paint(t("invalid_number"), RED))
+    return mapping
+
+
+def preview_loop(app, candidates, separator, date_label):
+    """Show the parsed rows and let them be adjusted before anything is written.
+
+    Returns True to import, False to cancel. Nothing touches the database until
+    this returns True.
+    """
+    while True:
+        print_candidates(candidates, separator, date_label)
+        print(paint(t("import_commands"), DIM))
+        choice = input(t("import_choose")).strip()
+
+        if choice in cancels():
+            return False
+        if choice in CONFIRM_WORDS:
+            if not any(c.will_import for c in candidates):
+                print(paint(t("import_none_selected"), YELLOW))
+                continue
+            return True
+        if choice.casefold() in SELECT_ALL_WORDS:
+            for candidate in candidates:
+                if candidate.importable:
+                    candidate.selected = True
+            continue
+        if choice.casefold() in SELECT_NONE_WORDS:
+            for candidate in candidates:
+                candidate.selected = False
+            continue
+
+        lowered = choice.casefold()
+        if any(lowered.startswith(prefix) for prefix in CATEGORY_PREFIXES):
+            set_candidate_category(app, candidates, choice[2:].strip())
+            continue
+
+        if choice.isdigit():
+            index = int(choice)
+            if 1 <= index <= len(candidates):
+                candidate = candidates[index - 1]
+                if not candidate.importable:
+                    print(paint(t("import_row_unusable"), RED))
+                else:
+                    candidate.selected = not candidate.selected
+                continue
+
+        print(paint(t("invalid_choice", low=1, high=len(candidates)), RED))
+
+
+def set_candidate_category(app, candidates, raw):
+    """Set the category on one previewed row."""
+    if not raw.isdigit():
+        print(paint(t("invalid_number"), RED))
+        return
+    index = int(raw)
+    if not 1 <= index <= len(candidates):
+        print(paint(t("invalid_number"), RED))
+        return
+
+    candidate = candidates[index - 1]
+    if candidate.kind == TRANSFER:
+        print(paint(t("import_row_unusable"), YELLOW))
+        return
+    category = prompt_category(app, candidate.kind, current=candidate.category)
+    candidate.category = category
+
+
+def import_from_file(app, path=None):
+    """Read a file, show what it contains, and import what is approved.
+
+    `path` skips the filename prompt, for the command-line flag. Everything
+    after that is identical: the preview is the point of the feature, so there
+    is no way to import without seeing what will be written.
+    """
+    from .importing import (
+        ImportError_,
+        build_candidates,
+        commit,
+        guess_columns,
+        has_usable_amount,
+        mark_duplicates,
+        read_rows,
+    )
+
+    print(paint(f"\n{t('import_title')}", BOLD, CYAN))
+    if path is None:
+        path = input(t("ask_import_path")).strip()
+    if not path or path in cancels():
+        print(t("cancelled"))
+        return
+
+    try:
+        with open(path, "rb") as handle:
+            header, rows, _encoding = read_rows(handle.read())
+    except (OSError, ImportError_) as error:
+        print(paint(t("import_failed", error=error), RED))
+        return
+
+    print(paint(t("import_read", count=len(rows), path=path), BOLD))
+
+    mapping = guess_columns(header)
+    if "date" not in mapping or not has_usable_amount(mapping):
+        mapping = ask_import_columns(header, mapping)
+    if "date" not in mapping or not has_usable_amount(mapping):
+        print(paint(t("import_no_columns"), RED))
+        return
+
+    # Asked once. A statement comes from one account, so setting it per row
+    # would be seventeen answers to the same question.
+    account_id = None
+    if app.has_accounts():
+        print(paint(f"\n{t('import_ask_account')}", BOLD))
+        account_id = prompt_account(app)
+
+    candidates, separator, detected = build_candidates(header, rows, mapping, account_id=account_id)
+    mark_duplicates(candidates, app.transactions())
+
+    if not preview_loop(app, candidates, separator, detected[1] if detected else None):
+        print(paint(t("import_cancelled"), YELLOW))
+        return
+
+    try:
+        count = commit(app, candidates)
+    except Exception as error:
+        print(paint(t("import_failed", error=error), RED))
+        return
+    print(paint(t("import_done", count=count), BOLD))
+
+
+# ---------------------------------------------------------------------------
 # History
 # ---------------------------------------------------------------------------
 
@@ -1180,6 +1342,7 @@ MENU_ITEMS = [
     ("menu_transfer", add_transfer),
     ("menu_recurring", recurring_menu),
     ("menu_export", export_to_csv),
+    ("menu_import", import_from_file),
     ("menu_history", history_menu),
     ("menu_exit", None),
 ]

@@ -5,10 +5,44 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Thirteen versions are recorded below. Twelve of them were released; 2.0.0 was a
+Fourteen versions are recorded below. Thirteen of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.4.0] — 2026-08-30
+
+### Added
+
+- Importing transactions from a CSV file, via `--importo` or menu option 16.
+- Column matching against known header names in both languages, asking about
+  anything unrecognised rather than guessing.
+- Number and date formats worked out from the whole column rather than from one
+  value. `1.234` alone cannot say whether the separator is a decimal point or a
+  thousands mark; a column also containing `12,50` settles it. One `01/02/2026`
+  cannot say which half is the month; a column containing `15/02/2026` can.
+- A preview showing every parsed row before anything is written, with the
+  amount and date as the program read them rather than as the file wrote them.
+  Rows can be deselected and given a category from there.
+- Duplicate detection on date, amount and a normalised description. Matches are
+  flagged and deselected rather than skipped, so re-importing an overlapping
+  range is visible instead of quietly doubling the spending.
+- Recognition of cash deposits, which are a transfer rather than income —
+  counting them as income would inflate earnings while leaving the cash account
+  too high.
+- Support for separate debit and credit columns, with or without their own
+  minus sign, as bank statements write them.
+- Encoding detection covering UTF-8, UTF-8 with a byte order mark, UTF-16 and
+  the common single-byte encodings. A UTF-16 file read as UTF-8 yields no rows
+  rather than an error, which is the worst kind of failure.
+
+### Notes
+
+- The import runs as one database transaction. A partial import cannot be told
+  apart from a complete one, and re-running it would double whatever landed.
+- Nothing reaches the database until the preview is approved, from either the
+  menu or the flag.
+- 731 tests, up from 650.
 
 ## [3.3.0] — 2026-08-28
 

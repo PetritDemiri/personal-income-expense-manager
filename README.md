@@ -60,8 +60,9 @@ Running with no flags opens the interactive menu:
 | 13 | Transfero mes Llogarive | Transfer Between Accounts |
 | 14 | Transaksionet e Perseritura | Recurring Transactions |
 | 15 | Eksporto ne CSV | Export to CSV |
-| 16 | Historiku i Ndryshimeve | Change History |
-| 17 | Dil nga programi | Exit |
+| 16 | Importo nga nje skedar | Import from a file |
+| 17 | Historiku i Ndryshimeve | Change History |
+| 18 | Dil nga programi | Exit |
 
 Dates use `dd-mm-yyyy`. When editing, each prompt shows the current value in brackets — press Enter to keep it.
 
@@ -88,6 +89,7 @@ Albanian flags are primary; English aliases work for all of them.
 | `--kerko` | `--search` | Search descriptions, categories, and subcategories |
 | `--eksporto` | `--export` | Export transactions to a CSV file |
 | `--historia` | `--history` | Show the change history, optionally for one transaction |
+| `--importo` | `--import` | Import transactions from a file, with a preview |
 | `--pershkrimi` | `--description` | Description for a new transaction |
 | `--shuma` | `--amount` | Amount for a new transaction |
 | `--data` | `--date` | Date (`dd-mm-yyyy`) |
@@ -139,6 +141,20 @@ a b c ç d dh e ë f g gj h i j k l ll m n nj o p q r rr s sh t th u v x xh y z 
 ```
 
 Each digraph is a letter in its own right, so every word beginning with S comes before every word beginning with Sh — `Sende`, `Sy`, then `Shendetesi`. Sorting by Unicode code point, which is what most languages do by default, interleaves them and pushes every accented word past Z.
+
+### Importing
+
+`--importo SKEDARI` reads a CSV and shows what it contains before anything is written. Menu option 16 does the same.
+
+The file's columns are matched against known header names in both languages; anything unrecognised is asked about rather than guessed at. The account is asked once at the start, since a statement comes from one account.
+
+Number and date formats are worked out from the whole column rather than from one value: `1.234` alone cannot say whether the separator is a decimal point or a thousands mark, while a column also containing `12,50` settles it. The same goes for dates — one `01/02/2026` cannot say which half is the month, but a column containing `15/02/2026` can.
+
+**Nothing is written until you approve it.** The preview shows every parsed row with the amount and date *as the program read them*, not as the file wrote them, because a misread decimal separator and a swapped day and month are silent errors and seeing `€1.23` where `€1,234.56` was meant is how they get caught. From the preview you can deselect rows, set a category on any of them, and then import.
+
+Rows that already exist are flagged as duplicates and deselected — shown rather than skipped, so re-importing an overlapping range is visible instead of quietly doubling your spending. Rows with an unreadable date or amount are flagged too, and cannot be selected.
+
+The import runs as one database transaction. A partial import cannot be told apart from a complete one, and re-running it would double whatever landed.
 
 ### Change history
 

@@ -53,6 +53,7 @@ ACTION_FLAGS = (
     "transfero",
     "eksporto",
     "historia",
+    "importo",
 )
 
 
@@ -183,6 +184,14 @@ def build_parser():
         metavar="NUMRI",
         help="Shfaq historikun e ndryshimeve; me nje numer, vetem ate "
         "transaksion / show the change history",
+    )
+    actions.add_argument(
+        "--importo",
+        "--import",
+        dest="importo",
+        metavar="SKEDARI",
+        help="Importo transaksione nga nje skedar, me shikim paraprak "
+        "/ import transactions from a file, with a preview",
     )
 
     fields = parser.add_argument_group("fushat dhe filtrat / fields and filters")
@@ -610,6 +619,14 @@ def run_cli(app, args):
 
     if args.raporti:
         do_report(app, args)
+        did_something = True
+
+    if args.importo:
+        from .ui import import_from_file
+
+        # The preview is the whole safety of this feature, so the flag opens
+        # the same interactive review rather than importing blind.
+        import_from_file(app, path=args.importo)
         did_something = True
 
     if args.historia is not None:

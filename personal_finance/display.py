@@ -563,3 +563,85 @@ def print_history(entries, title=None, names=None):
                     DIM,
                 )
             )
+
+
+def print_candidates(candidates, decimal_separator=None, date_label=None):
+    """Print parsed rows before any of them is written.
+
+    The amounts and dates shown are the parsed ones, not the file's text. That
+    is the whole point: a misread decimal separator or a day and month the
+    wrong way round are silent errors, and seeing EUR 1.23 where EUR 1,234.56
+    was meant is how they get caught.
+    """
+    if not candidates:
+        print(paint(f"\n{t('import_nothing')}", YELLOW))
+        return
+
+    numbers = {c.row_number: str(index) for index, c in enumerate(candidates, start=1)}
+    dates = {c.row_number: c.occurred_on or "?" for c in candidates}
+    types = {c.row_number: type_label(c.kind) for c in candidates}
+    amounts = {c.row_number: money(c.amount) for c in candidates}
+    categories = {c.row_number: category_display(c.category) for c in candidates}
+
+    def status(candidate):
+        if candidate.problem == "date":
+            return t("import_bad_date")
+        if candidate.problem == "amount":
+            return t("import_bad_amount")
+        if candidate.duplicate_of is not None:
+            return t("import_duplicate")
+        return ""
+
+    statuses = {c.row_number: status(c) for c in candidates}
+
+    w_num = max(len("#"), max(len(v) for v in numbers.values()))
+    w_date = max([len(t("field_date"))] + [len(v) for v in dates.values()])
+    w_type = max([len(t("field_type"))] + [len(v) for v in types.values()])
+    w_desc = max([len(t("field_description"))] + [len(c.description) for c in candidates])
+    w_cat = max([len(t("field_category"))] + [len(v) for v in categories.values()])
+    w_amount = max([len(t("field_amount"))] + [len(v) for v in amounts.values()])
+    w_status = max([len(t("import_status"))] + [len(v) for v in statuses.values()])
+
+    total = 2 + w_num + w_date + w_type + w_desc + w_cat + w_amount + w_status + 7
+
+    if decimal_separator or date_label:
+        detected = []
+        if date_label:
+            detected.append(t("import_date_format", format=date_label))
+        if decimal_separator:
+            detected.append(t("import_number_format", separator=decimal_separator))
+        print(paint("  " + "   ".join(detected), DIM))
+
+    print("-" * total)
+    print(
+        paint(
+            f"{'':<2}{'#':<{w_num}} {t('field_date'):<{w_date}} "
+            f"{t('field_type'):<{w_type}} {t('field_description'):<{w_desc}} "
+            f"{t('field_category'):<{w_cat}} {t('field_amount'):>{w_amount}} "
+            f"{t('import_status'):<{w_status}}",
+            BOLD,
+        )
+    )
+    print("-" * total)
+
+    for candidate in candidates:
+        key = candidate.row_number
+        mark = "*" if candidate.will_import else " "
+        line = (
+            f"{mark:<2}{numbers[key]:<{w_num}} {dates[key]:<{w_date}} "
+            f"{types[key]:<{w_type}} {candidate.description:<{w_desc}} "
+            f"{categories[key]:<{w_cat}} {amounts[key]:>{w_amount}} "
+            f"{statuses[key]:<{w_status}}"
+        )
+        if not candidate.importable:
+            print(paint(line, RED))
+        elif candidate.duplicate_of is not None:
+            print(paint(line, YELLOW))
+        elif candidate.will_import:
+            print(paint(line, type_color(candidate.kind)))
+        else:
+            print(paint(line, DIM))
+
+    print("-" * total)
+    chosen = sum(1 for c in candidates if c.will_import)
+    print(paint(t("import_selected", count=chosen, total=len(candidates)), BOLD))
