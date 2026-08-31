@@ -6,8 +6,9 @@
 
 A command-line personal income and expense manager, with an Albanian interface and an English option. Data lives in SQLite. No runtime dependencies — standard library only.
 
-<!-- Record with `vhs demo.tape` and commit the result, then uncomment: -->
-<!-- ![Demo](demo.gif) -->
+
+![Demo](demo.gif)
+
 
 ## Features
 
