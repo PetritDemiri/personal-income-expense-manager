@@ -265,6 +265,46 @@ class RecurringRule:
 
 
 @dataclass
+class CategoryRule:
+    """A description pattern, and the category to apply when it matches."""
+
+    pattern: str
+    category_id: int
+    subcategory_id: Optional[int] = None
+    id: Optional[int] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+
+    @property
+    def key(self):
+        return name_key(self.pattern)
+
+    def matches(self, description):
+        """Whether this rule applies to a description.
+
+        Substring, case-insensitive, folded the same way names are - so a
+        pattern written "Ëmbëlsira" matches a description containing
+        "ëmbëlsira". Substring rather than a regular expression: a wrong
+        pattern here does nothing visible, while a wrong expression matches
+        things nobody intended and is hard to see in a preview.
+        """
+        return bool(self.key) and self.key in name_key(description)
+
+
+def best_rule(rules, description):
+    """The rule that applies to a description, or None.
+
+    The longest matching pattern wins, so "STEAM" and "STEAMGAMES.CO" can both
+    exist with the specific one beating the general one - without anyone
+    having to maintain an order by hand.
+    """
+    matching = [rule for rule in rules if rule.matches(description)]
+    if not matching:
+        return None
+    return max(matching, key=lambda rule: (len(rule.key), rule.id or 0))
+
+
+@dataclass
 class AuditEntry:
     """One recorded change: what, which row, when, and the row either side.
 

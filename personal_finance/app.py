@@ -17,6 +17,7 @@ from .i18n import t
 from .models import (
     Account,
     Category,
+    CategoryRule,
     RecurringRule,
     Subcategory,
     Transaction,
@@ -183,6 +184,69 @@ class FinanceApp:
         affected = len(self.db.transactions(subcategory_id=subcategory_id))
         self.db.delete_subcategory(subcategory_id)
         return removed, affected
+
+    # -- category rules ----------------------------------------------------
+
+    def category_rules(self):
+        return self.db.category_rules()
+
+    def rule_for(self, description):
+        """The rule that applies to a description, or None."""
+        from .models import best_rule
+
+        return best_rule(self.db.category_rules(), description)
+
+    def add_category_rule(self, pattern, category_name, kind, subcategory_name=None):
+        """Create a rule, making the category if it does not exist yet."""
+        category_id = self.db.ensure_category(category_name, kind)
+        if category_id is None:
+            return None
+        subcategory_id = (
+            self.db.ensure_subcategory(subcategory_name, category_id) if subcategory_name else None
+        )
+        rule = CategoryRule(
+            pattern=pattern.strip(),
+            category_id=category_id,
+            subcategory_id=subcategory_id,
+        )
+        self.db.add_category_rule(rule)
+        return rule
+
+    def delete_category_rule(self, rule_id):
+        removed = next((r for r in self.db.category_rules() if r.id == rule_id), None)
+        self.db.delete_category_rule(rule_id)
+        return removed
+
+    def rule_exists(self, pattern):
+        return self.db.rule_by_pattern(pattern) is not None
+
+    def count_matching(self, pattern):
+        return self.db.count_matching(pattern)
+
+    def apply_rules(self, candidates):
+        """Fill in the category on any candidate a rule matches.
+
+        Only where the file did not already say. Something the import itself
+        provided is better evidence than a pattern written weeks ago.
+        Returns how many were filled in.
+        """
+        rules = self.db.category_rules()
+        if not rules:
+            return 0
+        from .models import best_rule
+        from .schema import TRANSFER
+
+        filled = 0
+        for candidate in candidates:
+            if candidate.category or candidate.kind == TRANSFER:
+                continue
+            rule = best_rule(rules, candidate.description)
+            if rule is None:
+                continue
+            candidate.category = rule.category
+            candidate.subcategory = rule.subcategory
+            filled += 1
+        return filled
 
     # -- accounts ----------------------------------------------------------
 

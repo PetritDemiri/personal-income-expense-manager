@@ -486,6 +486,7 @@ _FIELD_LABELS = {
     "starts_on": "field_start",
     "generated_upto": "field_generated",
     "limit_cents": "field_limit",
+    "pattern": "field_pattern",
 }
 
 # Columns holding money, so the log shows euros rather than raw cents.

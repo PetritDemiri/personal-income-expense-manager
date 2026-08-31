@@ -160,12 +160,23 @@ def prompt_kind(current=None):
         print(paint(t("invalid_type"), RED))
 
 
-def prompt_category(app, kind, current=None):
+def prompt_category(app, kind, current=None, description=None):
     """Ask for a category, offering the ones already defined.
 
     A name typed here that does not exist yet is created when the transaction
     is saved, so entry never stalls on defining a category first.
+
+    When a rule matches the description it is shown as a suggestion rather
+    than filled in. Pre-filling would let a rule written weeks ago decide the
+    category on an unread Enter; during an import the preview catches that,
+    but a single entry has no preview to catch it.
     """
+    if description and current is None:
+        rule = app.rule_for(description)
+        if rule is not None:
+            shown = rule.category + (f" / {rule.subcategory}" if rule.subcategory else "")
+            print(paint(t("rule_suggestion", category=shown), DIM))
+
     options = app.category_names(kind)
     if options:
         print(f"\n{t('suggested_categories')}")
@@ -356,7 +367,7 @@ def add_transaction(app, kind):
     description = prompt_description()
     amount = prompt_amount()
     occurred_on = prompt_date()
-    category = prompt_category(app, kind)
+    category = prompt_category(app, kind, description=description)
     subcategory = prompt_subcategory(app, kind, category)
     account_id = prompt_account(app) if app.has_accounts() else None
 
@@ -769,6 +780,110 @@ def account_menu(app):
 
 
 # ---------------------------------------------------------------------------
+# Category rules
+# ---------------------------------------------------------------------------
+
+
+def show_rules(app):
+    """Every rule, most specific first."""
+    rules = app.category_rules()
+    if not rules:
+        print(paint(f"\n{t('no_rules')}", YELLOW))
+        return
+
+    patterns = [r.pattern for r in rules]
+    targets = [f"{r.category}" + (f" / {r.subcategory}" if r.subcategory else "") for r in rules]
+    w_pattern = max([len(t("field_rule_pattern"))] + [len(v) for v in patterns])
+    w_target = max([len(t("field_category"))] + [len(v) for v in targets])
+    total = 4 + w_pattern + 4 + w_target
+
+    print(paint(f"\n{t('rules_title')}", BOLD, CYAN))
+    print("-" * total)
+    print(
+        paint(
+            f"{'#':<4}{t('field_rule_pattern'):<{w_pattern}}    {t('field_category'):<{w_target}}",
+            BOLD,
+        )
+    )
+    print("-" * total)
+    for index in range(1, len(rules) + 1):
+        print(f"{index:<4}{patterns[index - 1]:<{w_pattern}} -> {targets[index - 1]}")
+    print("-" * total)
+
+
+def add_rule(app):
+    """Create a rule, saying first how much of the existing data it touches."""
+    print(paint(f"\n{t('rule_menu_add')}", BOLD, CYAN))
+    pattern = input(t("ask_rule_pattern"))
+    if not pattern or pattern in cancels():
+        print(t("cancelled"))
+        return
+    pattern = pattern.strip()
+    if not pattern:
+        print(paint(t("empty_description"), RED))
+        return
+    if app.rule_exists(pattern):
+        print(paint(t("rule_exists"), RED))
+        return
+
+    # Said before the rule is saved: a pattern matching three hundred rows is
+    # something to learn beforehand.
+    count = app.count_matching(pattern)
+    if count:
+        print(paint(t("rule_would_match", count=count), DIM))
+    else:
+        print(paint(t("rule_matches_nothing"), YELLOW))
+
+    kind = prompt_category_kind()
+    category = prompt_category(app, kind)
+    if not category:
+        print(paint(t("budget_no_category"), RED))
+        return
+    subcategory = prompt_subcategory(app, kind, category)
+
+    answer = input(t("rule_confirm")).strip()
+    if answer not in affirmatives():
+        print(t("cancelled"))
+        return
+
+    app.add_category_rule(pattern, category, kind, subcategory)
+    print(paint(t("rule_added", pattern=pattern, category=category), BOLD))
+
+
+def delete_rule(app):
+    show_rules(app)
+    rules = app.category_rules()
+    if not rules:
+        return
+    index = prompt_index(len(rules), t("ask_number_rule"))
+    if index is None:
+        return
+    removed = app.delete_category_rule(rules[index].id)
+    print(paint(t("rule_deleted", pattern=removed.pattern), YELLOW))
+
+
+def rules_menu(app):
+    while True:
+        print(paint(f"\n{t('menu_rules')}:", BOLD, CYAN))
+        print(f"1. {t('rule_menu_view')}")
+        print(f"2. {t('rule_menu_add')}")
+        print(f"3. {t('rule_menu_delete')}")
+        print(f"4. {t('back')}")
+
+        choice = prompt_menu_choice(1, 4)
+        if choice == "1":
+            show_rules(app)
+        elif choice == "2":
+            add_rule(app)
+        elif choice == "3":
+            delete_rule(app)
+        elif choice == "4":
+            return
+        else:
+            print(paint(t("invalid_choice", low=1, high=4), RED))
+
+
+# ---------------------------------------------------------------------------
 # Importing
 # ---------------------------------------------------------------------------
 
@@ -916,6 +1031,9 @@ def import_statement(app, raw, path):
 
     candidates = to_candidates(statement, account_id=account_id)
     print(paint(t("import_deposits_note"), DIM))
+    filled = app.apply_rules(candidates)
+    if filled:
+        print(paint(t("rules_applied", count=filled), DIM))
     mark_duplicates_for(app, candidates)
 
     if not preview_loop(app, candidates, ".", "dd/mm/yyyy"):
@@ -1006,6 +1124,11 @@ def import_from_file(app, path=None):
         account_id = prompt_account(app)
 
     candidates, separator, detected = build_candidates(header, rows, mapping, account_id=account_id)
+    # Applied before the preview, so a matched row arrives with its category
+    # already filled in and can still be changed like any other.
+    filled = app.apply_rules(candidates)
+    if filled:
+        print(paint(t("rules_applied", count=filled), DIM))
     mark_duplicates(candidates, app.transactions())
 
     if not preview_loop(app, candidates, separator, detected[1] if detected else None):
@@ -1429,6 +1552,7 @@ MENU_ITEMS = [
     ("menu_transfer", add_transfer),
     ("menu_recurring", recurring_menu),
     ("menu_export", export_to_csv),
+    ("menu_rules", rules_menu),
     ("menu_import", import_from_file),
     ("menu_history", history_menu),
     ("menu_exit", None),

@@ -44,7 +44,7 @@ and the hand-edited CSV files that once made unvalidated values possible are
 gone.
 """
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Transaction types, as stored. Repeated in the CHECK constraints below so the
 # database rejects anything else regardless of what the application believes.
@@ -140,6 +140,16 @@ CREATE TABLE budgets (
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE category_rules (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern        TEXT    NOT NULL CHECK (length(trim(pattern)) > 0),
+    pattern_key    TEXT    NOT NULL UNIQUE,
+    category_id    INTEGER NOT NULL REFERENCES categories(id)    ON DELETE CASCADE,
+    subcategory_id INTEGER          REFERENCES subcategories(id) ON DELETE SET NULL,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Append only. Nothing in the application updates or deletes a row here, and
 -- the row it describes may since have been deleted, so entity_id is recorded
 -- as a plain integer rather than as a foreign key.
@@ -160,6 +170,7 @@ CREATE INDEX idx_transactions_account    ON transactions(account_id);
 CREATE INDEX idx_transactions_to_account ON transactions(to_account_id);
 CREATE INDEX idx_subcategories_category  ON subcategories(category_id);
 CREATE INDEX idx_audit_entity            ON audit_log(entity, entity_id);
+CREATE INDEX idx_rules_category           ON category_rules(category_id);
 """
 
 
@@ -194,6 +205,7 @@ AUDITED_TABLES = {
         "generated_upto",
     ),
     "budgets": ("category_id", "limit_cents"),
+    "category_rules": ("pattern", "category_id", "subcategory_id"),
 }
 
 # Tables carrying an updated_at, maintained by the update trigger below.
@@ -267,9 +279,32 @@ def _migration_5(connection):
 
 # Keyed by the version each step brings the database up to. A database created
 # fresh gets the whole schema at SCHEMA_VERSION and skips these entirely.
+def _migration_6(connection):
+    """Add category rules.
+
+    A rule belongs to its category: delete the category and the rule goes with
+    it, because a rule pointing at nothing would silently stop working rather
+    than announce itself. A subcategory is optional and merely detaches.
+    """
+    connection.executescript("""
+CREATE TABLE IF NOT EXISTS category_rules (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern        TEXT    NOT NULL CHECK (length(trim(pattern)) > 0),
+    pattern_key    TEXT    NOT NULL UNIQUE,
+    category_id    INTEGER NOT NULL REFERENCES categories(id)    ON DELETE CASCADE,
+    subcategory_id INTEGER          REFERENCES subcategories(id) ON DELETE SET NULL,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_rules_category ON category_rules(category_id);
+""")
+    connection.executescript(audit_triggers("category_rules", AUDITED_TABLES["category_rules"]))
+
+
 MIGRATIONS = {
     4: _migration_4,
     5: _migration_5,
+    6: _migration_6,
 }
 
 

@@ -6,7 +6,8 @@
 
 A command-line personal income and expense manager, with an Albanian interface and an English option. Data lives in SQLite. No runtime dependencies — standard library only.
 
-![Demo](demo.gif)
+<!-- Record with `vhs demo.tape` and commit the result, then uncomment: -->
+<!-- ![Demo](demo.gif) -->
 
 ## Features
 
@@ -59,9 +60,10 @@ Running with no flags opens the interactive menu:
 | 13 | Transfero mes Llogarive | Transfer Between Accounts |
 | 14 | Transaksionet e Perseritura | Recurring Transactions |
 | 15 | Eksporto ne CSV | Export to CSV |
-| 16 | Importo nga nje skedar | Import from a file |
-| 17 | Historiku i Ndryshimeve | Change History |
-| 18 | Dil nga programi | Exit |
+| 16 | Rregullat e Kategorive | Category Rules |
+| 17 | Importo nga nje skedar | Import from a file |
+| 18 | Historiku i Ndryshimeve | Change History |
+| 19 | Dil nga programi | Exit |
 
 Dates use `dd-mm-yyyy`. When editing, each prompt shows the current value in brackets — press Enter to keep it.
 
@@ -140,6 +142,27 @@ a b c ç d dh e ë f g gj h i j k l ll m n nj o p q r rr s sh t th u v x xh y z 
 ```
 
 Each digraph is a letter in its own right, so every word beginning with S comes before every word beginning with Sh — `Sende`, `Sy`, then `Shendetesi`. Sorting by Unicode code point, which is what most languages do by default, interleaves them and pushes every accented word past Z.
+
+### Category rules
+
+A rule is a piece of text and the category to apply when a description contains it. Menu option 16 manages them.
+
+```
+SHOP.EXAMPLE  ->  Ushqim
+Mirëmbajtje   ->  Tarifa bankare
+```
+
+Matching is by substring, case-insensitive, folded the same way category names are — so a rule written `Mirëmbajtje` matches `MIRËMBAJTJE`. Not regular expressions: a wrong pattern here simply does nothing, while a wrong expression matches things nobody intended and is hard to spot in a preview.
+
+**When two rules match, the longest pattern wins.** So `STEAM` and `STEAMGAMES.CO` can both exist, with the specific one beating the general one, and there is no order to maintain by hand.
+
+Rules apply during the **import preview**, filling in the category on any row the file did not already categorise. Every row is still shown and can still be changed before anything is written. Transfers are left alone — moved money has no category.
+
+When adding a transaction by hand, a matching rule is shown as a suggestion but **never filled in**. Pre-filling would let a rule written weeks ago decide the category on an unread Enter, and a single entry has no preview to catch that.
+
+Before a rule is saved, the program says how many existing transactions it would match. A pattern matching three hundred rows is worth knowing about beforehand.
+
+Deleting a category deletes its rules with it, since a rule pointing at nothing would stop working without saying so.
 
 ### Importing
 

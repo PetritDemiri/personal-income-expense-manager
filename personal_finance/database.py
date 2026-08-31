@@ -24,6 +24,7 @@ from .models import (
     AuditEntry,
     Budget,
     Category,
+    CategoryRule,
     RecurringRule,
     Subcategory,
     TransactionView,
@@ -608,6 +609,82 @@ class Database:
     def delete_budget(self, category_id):
         with self.connection as conn:
             conn.execute("DELETE FROM budgets WHERE category_id = ?", (category_id,))
+
+    # -- category rules ----------------------------------------------------
+
+    @staticmethod
+    def _rule_row(row):
+        return CategoryRule(
+            id=row["id"],
+            pattern=row["pattern"],
+            category_id=row["category_id"],
+            subcategory_id=row["subcategory_id"],
+            category=row["category_name"],
+            subcategory=row["subcategory_name"],
+        )
+
+    def category_rules(self):
+        """Every rule, with the names it points at already resolved."""
+        rows = self.connection.execute(
+            "SELECT r.*, c.name AS category_name, s.name AS subcategory_name "
+            "FROM category_rules r "
+            "LEFT JOIN categories c    ON c.id = r.category_id "
+            "LEFT JOIN subcategories s ON s.id = r.subcategory_id "
+            "ORDER BY length(r.pattern_key) DESC, r.pattern"
+        )
+        return [self._rule_row(row) for row in rows]
+
+    def rule_by_pattern(self, pattern):
+        row = self.connection.execute(
+            "SELECT r.*, c.name AS category_name, s.name AS subcategory_name "
+            "FROM category_rules r "
+            "LEFT JOIN categories c    ON c.id = r.category_id "
+            "LEFT JOIN subcategories s ON s.id = r.subcategory_id "
+            "WHERE r.pattern_key = ?",
+            (name_key(pattern),),
+        ).fetchone()
+        return self._rule_row(row) if row else None
+
+    def add_category_rule(self, rule):
+        with self.connection as conn:
+            cursor = conn.execute(
+                "INSERT INTO category_rules (pattern, pattern_key, category_id, "
+                " subcategory_id) VALUES (?, ?, ?, ?)",
+                (rule.pattern, rule.key, rule.category_id, rule.subcategory_id),
+            )
+        rule.id = cursor.lastrowid
+        return rule.id
+
+    def update_category_rule(self, rule_id, **fields):
+        sets, values = [], []
+        if "pattern" in fields:
+            sets += ["pattern = ?", "pattern_key = ?"]
+            values += [fields["pattern"], name_key(fields["pattern"])]
+        for name in ("category_id", "subcategory_id"):
+            if name in fields:
+                sets.append(f"{name} = ?")
+                values.append(fields[name])
+        if not sets:
+            return
+        values.append(rule_id)
+        with self.connection as conn:
+            conn.execute(f"UPDATE category_rules SET {', '.join(sets)} WHERE id = ?", values)
+
+    def delete_category_rule(self, rule_id):
+        with self.connection as conn:
+            conn.execute("DELETE FROM category_rules WHERE id = ?", (rule_id,))
+
+    def count_matching(self, pattern):
+        """How many stored transactions a pattern would match.
+
+        Asked before a rule is saved: a pattern of "a" matching three hundred
+        rows is something to learn beforehand, not afterwards.
+        """
+        needle = f"%{pattern.strip()}%"
+        return self.connection.execute(
+            "SELECT COUNT(*) FROM transactions WHERE description LIKE ? COLLATE NOCASE",
+            (needle,),
+        ).fetchone()[0]
 
     # -- audit log ---------------------------------------------------------
 

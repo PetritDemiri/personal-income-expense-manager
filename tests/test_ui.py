@@ -608,3 +608,62 @@ class TestCancelWord:
         add_category(app)
         assert "Anuluar" in capsys.readouterr().out
         assert app.categories(EXPENSE) == []
+
+
+class TestRuleSuggestionOnManualEntry:
+    """A rule suggests, it does not decide.
+
+    Pre-filling would let a rule written weeks ago choose the category on an
+    unread Enter. During an import the preview catches that; a single manual
+    entry has no preview, so the rule is shown and the user still answers.
+    """
+
+    def test_a_matching_rule_is_shown(self, app, answers, capsys):
+        app.add_category_rule("STEAM", "Argëtim", EXPENSE)
+        capsys.readouterr()
+
+        answers("Argëtim")
+        prompt_category(app, EXPENSE, description="E-commerce 0STEAMGAMES.CO")
+        assert "Sugjerim" in capsys.readouterr().out
+
+    def test_the_suggestion_is_not_pre_filled(self, app, answers, capsys):
+        """Enter still means "no category", not "accept the suggestion"."""
+        app.add_category_rule("STEAM", "Argëtim", EXPENSE)
+        capsys.readouterr()
+
+        answers("")
+        assert prompt_category(app, EXPENSE, description="0STEAMGAMES.CO") is None
+
+    def test_the_user_can_choose_something_else(self, app, answers, capsys):
+        app.add_category_rule("STEAM", "Argëtim", EXPENSE)
+        capsys.readouterr()
+
+        answers("Dhurata")
+        assert prompt_category(app, EXPENSE, description="0STEAMGAMES.CO") == "Dhurata"
+
+    def test_nothing_is_shown_without_a_match(self, app, answers, capsys):
+        app.add_category_rule("STEAM", "Argëtim", EXPENSE)
+        capsys.readouterr()
+
+        answers("Ushqim")
+        prompt_category(app, EXPENSE, description="Ushqime nga dyqani")
+        assert "Sugjerim" not in capsys.readouterr().out
+
+    def test_nothing_is_shown_when_editing(self, app, answers, capsys):
+        """Editing already has a value; a suggestion would only be noise."""
+        app.add_category_rule("STEAM", "Argëtim", EXPENSE)
+        capsys.readouterr()
+
+        answers("")
+        prompt_category(app, EXPENSE, current="Dhurata", description="0STEAMGAMES.CO")
+        assert "Sugjerim" not in capsys.readouterr().out
+
+    def test_adding_a_transaction_shows_the_suggestion(self, app, answers, capsys):
+        app.add_category_rule("STEAM", "Argëtim", EXPENSE)
+        capsys.readouterr()
+
+        answers("E-commerce 0STEAMGAMES.CO", "50", "po", "Argëtim", "")
+        add_transaction(app, EXPENSE)
+        output = capsys.readouterr().out
+        assert "Sugjerim" in output
+        assert app.transactions()[-1].category == "Argëtim"

@@ -5,10 +5,42 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Fifteen versions are recorded below. Fourteen of them were released; 2.0.0 was a
+Sixteen versions are recorded below. Fifteen of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.6.0] — 2026-08-31
+
+### Added
+
+- Category rules: a piece of text and the category to apply when a description
+  contains it, managed from menu option 16.
+- Rules applied during the import preview, filling in the category on rows the
+  file did not already categorise. Every row is still shown and can still be
+  changed before anything is written, and transfers are left alone.
+- A suggestion, not a decision, when adding a transaction by hand: a matching
+  rule is shown but never filled in. Pre-filling would let a rule written weeks
+  ago choose the category on an unread Enter, and a single entry has no preview
+  to catch that.
+- A count of how many existing transactions a pattern would match, shown before
+  the rule is saved. A pattern matching three hundred rows is worth knowing
+  about beforehand.
+
+### Notes
+
+- Matching is by substring, case-insensitive, folded the same way category
+  names are. Not regular expressions: a wrong pattern does nothing, while a
+  wrong expression matches things nobody intended and is hard to spot.
+- Where two rules match, the longest pattern wins, so a general and a specific
+  rule coexist without an order to maintain.
+- A category taken from the imported file is never overwritten by a rule. What
+  the import itself said is better evidence than a pattern written weeks ago.
+- Deleting a category deletes its rules; a rule pointing at nothing would stop
+  working without announcing it. Deleting a subcategory only detaches it.
+- Schema version 6. The migration adds one table and its triggers and rebuilds
+  nothing, so a database in daily use upgrades in place.
+- 821 tests, up from 775.
 
 ## [3.5.0] — 2026-08-31
 
