@@ -149,9 +149,12 @@ Each digraph is a letter in its own right, so every word beginning with S comes 
 A rule is a piece of text and the category to apply when a description contains it. Menu option 16 manages them.
 
 ```
-SHOP.EXAMPLE  ->  Ushqim
+STEAMGAMES    ->  Argëtim / Lojëra
+APPLE.COM     ->  Argëtim
 Mirëmbajtje   ->  Tarifa bankare
 ```
+
+Those are the sort of strings a bank statement actually contains — a merchant name as the card network abbreviates it, and the wording a bank uses for its own fees.
 
 Matching is by substring, case-insensitive, folded the same way category names are — so a rule written `Mirëmbajtje` matches `MIRËMBAJTJE`. Not regular expressions: a wrong pattern here simply does nothing, while a wrong expression matches things nobody intended and is hard to spot in a preview.
 
