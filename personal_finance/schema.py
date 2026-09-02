@@ -44,7 +44,11 @@ and the hand-edited CSV files that once made unvalidated values possible are
 gone.
 """
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
+
+# The single user a database gains when it is upgraded from before users
+# existed. Everything already stored becomes theirs.
+DEFAULT_USER_NAME = "Une"
 
 # Transaction types, as stored. Repeated in the CHECK constraints below so the
 # database rejects anything else regardless of what the application believes.
@@ -53,29 +57,48 @@ EXPENSE = "Shpenzime"
 TRANSFER = "Transferim"
 
 SCHEMA = f"""
+-- One person's finances. The command line never asks for a password: whoever
+-- can run the program can open this file directly, so a prompt would add
+-- friction without adding protection. The hash is here for the web interface,
+-- where it is the only thing between a stranger and someone's money.
+CREATE TABLE users (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    name           TEXT    NOT NULL,
+    name_key       TEXT    NOT NULL UNIQUE,
+    password_hash  TEXT,
+    password_salt  TEXT,
+    password_iters INTEGER,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE accounts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name        TEXT    NOT NULL,
-    name_key    TEXT    NOT NULL UNIQUE,
+    name_key    TEXT    NOT NULL,
     kind        TEXT    NOT NULL,
     opening_cents INTEGER NOT NULL DEFAULT 0,
     position    INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (user_id, name_key)
 );
 
 CREATE TABLE categories (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name        TEXT    NOT NULL,
     name_key    TEXT    NOT NULL,
     kind        TEXT    NOT NULL CHECK (kind IN ('{INCOME}', '{EXPENSE}')),
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (name_key, kind)
+    UNIQUE (user_id, name_key, kind)
 );
 
 CREATE TABLE subcategories (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name        TEXT    NOT NULL,
     name_key    TEXT    NOT NULL,
     category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
@@ -86,6 +109,7 @@ CREATE TABLE subcategories (
 
 CREATE TABLE transactions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     kind            TEXT    NOT NULL
                     CHECK (kind IN ('{INCOME}', '{EXPENSE}', '{TRANSFER}')),
     description     TEXT    NOT NULL CHECK (length(trim(description)) > 0),
@@ -111,6 +135,7 @@ CREATE TABLE transactions (
 
 CREATE TABLE recurring_rules (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     kind            TEXT    NOT NULL
                     CHECK (kind IN ('{INCOME}', '{EXPENSE}', '{TRANSFER}')),
     description     TEXT    NOT NULL CHECK (length(trim(description)) > 0),
@@ -133,6 +158,7 @@ CREATE TABLE recurring_rules (
 
 CREATE TABLE budgets (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     category_id INTEGER NOT NULL UNIQUE
                 REFERENCES categories(id) ON DELETE CASCADE,
     limit_cents INTEGER NOT NULL CHECK (limit_cents > 0),
@@ -142,12 +168,14 @@ CREATE TABLE budgets (
 
 CREATE TABLE category_rules (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     pattern        TEXT    NOT NULL CHECK (length(trim(pattern)) > 0),
-    pattern_key    TEXT    NOT NULL UNIQUE,
+    pattern_key    TEXT    NOT NULL,
     category_id    INTEGER NOT NULL REFERENCES categories(id)    ON DELETE CASCADE,
     subcategory_id INTEGER          REFERENCES subcategories(id) ON DELETE SET NULL,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+    updated_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (user_id, pattern_key)
 );
 
 -- Append only. Nothing in the application updates or deletes a row here, and
@@ -155,6 +183,7 @@ CREATE TABLE category_rules (
 -- as a plain integer rather than as a foreign key.
 CREATE TABLE audit_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER,
     entity      TEXT    NOT NULL,
     entity_id   INTEGER,
     action      TEXT    NOT NULL CHECK (action IN ('create', 'update', 'delete')),
@@ -163,6 +192,10 @@ CREATE TABLE audit_log (
     at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE INDEX idx_transactions_user       ON transactions(user_id, occurred_on);
+CREATE INDEX idx_accounts_user            ON accounts(user_id);
+CREATE INDEX idx_categories_user          ON categories(user_id);
+CREATE INDEX idx_audit_user               ON audit_log(user_id);
 CREATE INDEX idx_transactions_date       ON transactions(occurred_on);
 CREATE INDEX idx_transactions_kind_date  ON transactions(kind, occurred_on);
 CREATE INDEX idx_transactions_category   ON transactions(category_id);
@@ -208,6 +241,9 @@ AUDITED_TABLES = {
     "category_rules": ("pattern", "category_id", "subcategory_id"),
 }
 
+# Tables carrying a user_id, so the audit trigger can record who changed what.
+USER_OWNED = tuple(AUDITED_TABLES)
+
 # Tables carrying an updated_at, maintained by the update trigger below.
 TOUCHED_TABLES = tuple(AUDITED_TABLES)
 
@@ -234,23 +270,23 @@ def audit_triggers(table, columns):
 CREATE TRIGGER IF NOT EXISTS audit_{table}_insert AFTER INSERT ON {table}
 FOR EACH ROW
 BEGIN
-    INSERT INTO audit_log (entity, entity_id, action, before_json, after_json)
-    VALUES ('{table}', NEW.id, 'create', NULL, {new_json});
+    INSERT INTO audit_log (user_id, entity, entity_id, action, before_json, after_json)
+    VALUES (NEW.user_id, '{table}', NEW.id, 'create', NULL, {new_json});
 END;
 
 CREATE TRIGGER IF NOT EXISTS audit_{table}_update AFTER UPDATE ON {table}
 FOR EACH ROW
 BEGIN
-    INSERT INTO audit_log (entity, entity_id, action, before_json, after_json)
-    VALUES ('{table}', NEW.id, 'update', {old_json}, {new_json});
+    INSERT INTO audit_log (user_id, entity, entity_id, action, before_json, after_json)
+    VALUES (NEW.user_id, '{table}', NEW.id, 'update', {old_json}, {new_json});
     UPDATE {table} SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS audit_{table}_delete AFTER DELETE ON {table}
 FOR EACH ROW
 BEGIN
-    INSERT INTO audit_log (entity, entity_id, action, before_json, after_json)
-    VALUES ('{table}', OLD.id, 'delete', {old_json}, NULL);
+    INSERT INTO audit_log (user_id, entity, entity_id, action, before_json, after_json)
+    VALUES (OLD.user_id, '{table}', OLD.id, 'delete', {old_json}, NULL);
 END;
 """
 
@@ -301,10 +337,102 @@ CREATE INDEX IF NOT EXISTS idx_rules_category ON category_rules(category_id);
     connection.executescript(audit_triggers("category_rules", AUDITED_TABLES["category_rules"]))
 
 
+# Tables whose UNIQUE constraint has to become per-user, and which therefore
+# cannot be altered in place: SQLite can add a column but cannot change a
+# constraint or drop the index behind one.
+_REBUILT = {
+    "accounts": (
+        "id, user_id, name, name_key, kind, opening_cents, position, created_at, updated_at"
+    ),
+    "categories": "id, user_id, name, name_key, kind, created_at, updated_at",
+    "subcategories": ("id, user_id, name, name_key, category_id, created_at, updated_at"),
+    "category_rules": (
+        "id, user_id, pattern, pattern_key, category_id, subcategory_id, created_at, updated_at"
+    ),
+}
+
+# Tables that only need the column, having no name uniqueness to fix.
+_EXTENDED = ("transactions", "recurring_rules", "budgets", "audit_log")
+
+
+def _table_sql(table):
+    """The CREATE TABLE statement for one table, taken from SCHEMA."""
+    start = SCHEMA.index(f"CREATE TABLE {table} (")
+    end = SCHEMA.index("\n);", start) + 3
+    return SCHEMA[start:end]
+
+
+def _migration_7(connection):
+    """Give every row an owner.
+
+    Four tables are rebuilt because their UNIQUE constraints must become
+    per-user - two people must both be able to have a category called Ushqim.
+    SQLite cannot alter a constraint, so those are copied into new tables. The
+    other three only gain a column, which it can do in place.
+
+    Everything happens in one transaction, and the caller checks the totals
+    before and after. A migration that rebuilds four tables holding real money
+    should have to prove it changed nothing.
+    """
+    existing = (
+        connection.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        if connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone()[0]
+        else 0
+    )
+
+    if not existing:
+        connection.executescript(_table_sql("users"))
+        connection.execute(
+            "INSERT INTO users (id, name, name_key) VALUES (1, ?, ?)",
+            (DEFAULT_USER_NAME, DEFAULT_USER_NAME.casefold()),
+        )
+
+    # The triggers reference columns that are about to move; drop them all and
+    # recreate from the current definitions once the tables are right.
+    for table in AUDITED_TABLES:
+        for action in ("insert", "update", "delete"):
+            connection.execute(f"DROP TRIGGER IF EXISTS audit_{table}_{action}")
+
+    for table in _EXTENDED:
+        columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        if "user_id" not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER")
+        connection.execute(f"UPDATE {table} SET user_id = 1 WHERE user_id IS NULL")
+
+    for table, columns in _REBUILT.items():
+        old_columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        if "user_id" in old_columns:
+            continue
+        carried = columns.replace("user_id, ", "").replace("id, ", "", 1)
+
+        # Build the replacement under a temporary name, then drop the original
+        # and rename into place. Renaming the original first would make every
+        # foreign key follow it, and dropping it would then cascade - deleting
+        # the subcategories, budgets and rules that pointed at it.
+        connection.executescript(
+            _table_sql(table).replace(f"CREATE TABLE {table} (", f"CREATE TABLE {table}_new (")
+        )
+        connection.execute(
+            f"INSERT INTO {table}_new ({columns}) SELECT id, 1, {carried} FROM {table}"
+        )
+        connection.execute(f"DROP TABLE {table}")
+        connection.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+
+    connection.executescript(all_audit_triggers())
+    for statement in SCHEMA.split(";"):
+        if "CREATE INDEX" in statement:
+            connection.execute(
+                statement.strip().replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS")
+            )
+
+
 MIGRATIONS = {
     4: _migration_4,
     5: _migration_5,
     6: _migration_6,
+    7: _migration_7,
 }
 
 

@@ -18,7 +18,7 @@ import pytest
 from personal_finance.database import Database
 from personal_finance.importing import Candidate
 from personal_finance.models import CategoryRule, best_rule
-from personal_finance.schema import EXPENSE, INCOME, SCHEMA, SCHEMA_VERSION, TRANSFER
+from personal_finance.schema import EXPENSE, INCOME, SCHEMA_VERSION, TRANSFER
 
 
 class TestMatching:
@@ -265,20 +265,26 @@ class TestMigrationFromVersionFive:
     @staticmethod
     def build_v5(path):
         """A database as 3.5.0 left it: every table and trigger except rules."""
-        from personal_finance.schema import AUDITED_TABLES, audit_triggers
+        from personal_finance.schema import AUDITED_TABLES
+
+        from .conftest import audit_triggers_before_users, schema_before_users
 
         connection = sqlite3.connect(path)
-        body = SCHEMA
+        body = schema_before_users()
         start = body.index("CREATE TABLE category_rules")
         end = body.index("-- Append only.")
         # The index on the rules table goes with it.
         script = body[:start] + body[end:]
         script = "\n".join(line for line in script.split("\n") if "idx_rules_category" not in line)
         connection.executescript(script)
-        for table, columns in AUDITED_TABLES.items():
+        legacy = audit_triggers_before_users()
+        for table in AUDITED_TABLES:
             if table == "category_rules":
                 continue
-            connection.executescript(audit_triggers(table, columns))
+            start = legacy.index(f"CREATE TRIGGER IF NOT EXISTS audit_{table}_insert")
+            end = legacy.index(f"audit_{table}_delete")
+            end = legacy.index("END;", end) + 4
+            connection.executescript(legacy[start:end])
         connection.execute("PRAGMA user_version = 5")
         connection.execute(
             "INSERT INTO categories (name,name_key,kind) VALUES ('Ushqim','ushqim','Shpenzime')"

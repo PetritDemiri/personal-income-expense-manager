@@ -30,8 +30,8 @@ from .schema import EXPENSE
 class FinanceApp:
     """Everything the interface can ask the program to do."""
 
-    def __init__(self, database=None, path=None, quiet=False):
-        self.db = database or Database(path)
+    def __init__(self, database=None, path=None, quiet=False, user=None):
+        self.db = database or Database(path, user=user)
         self.quiet = quiet
 
     def close(self):
@@ -184,6 +184,42 @@ class FinanceApp:
         affected = len(self.db.transactions(subcategory_id=subcategory_id))
         self.db.delete_subcategory(subcategory_id)
         return removed, affected
+
+    # -- users -------------------------------------------------------------
+
+    @property
+    def user_id(self):
+        return self.db.user_id
+
+    def current_user(self):
+        return self.db.user()
+
+    def users(self):
+        return self.db.users()
+
+    def add_user(self, name, password=None):
+        return self.db.add_user(name, password)
+
+    def rename_user(self, user_id, name):
+        self.db.rename_user(user_id, name)
+        return self.db.user(user_id)
+
+    def set_password(self, user_id, password):
+        """Store a password for the web interface.
+
+        The command line never asks for one: anyone who can run the program
+        can open the database file directly, so a prompt would add friction
+        without adding protection.
+        """
+        self.db.set_password(user_id, password)
+
+    def delete_user(self, user_id):
+        removed = self.db.user(user_id)
+        self.db.delete_user(user_id)
+        return removed
+
+    def user_exists(self, name):
+        return self.db.user_by_name(name) is not None
 
     # -- category rules ----------------------------------------------------
 

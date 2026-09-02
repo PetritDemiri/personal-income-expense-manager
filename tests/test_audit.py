@@ -22,7 +22,6 @@ from personal_finance.models import Account, Category, RecurringRule, Transactio
 from personal_finance.schema import (
     AUDITED_TABLES,
     EXPENSE,
-    SCHEMA,
     SCHEMA_VERSION,
     all_audit_triggers,
 )
@@ -233,8 +232,10 @@ class TestMigrationFromVersionFour:
     @staticmethod
     def build_v4(path):
         """A database as 3.2.0 left it: tables, indexes and the touch triggers."""
+        from .conftest import schema_before_users
+
         connection = sqlite3.connect(path)
-        connection.executescript(SCHEMA)
+        connection.executescript(schema_before_users())
         for table in AUDITED_TABLES:
             connection.executescript(f"""
 CREATE TRIGGER touch_{table} AFTER UPDATE ON {table} FOR EACH ROW

@@ -15,6 +15,7 @@ from .app import FinanceApp
 from .budgets import all_statuses
 from .colors import BOLD, RED, YELLOW, paint
 from .config import DATABASE_FILE, data_path
+from .database import UnknownUser
 from .dates import current_date_str, format_date, month_of, parse_date, parse_month, today
 from .display import (
     print_accounts,
@@ -206,6 +207,13 @@ def build_parser():
     fields.add_argument("--muaji", "--month", help="Muaji (muaj-Vit) / month")
 
     storage = parser.add_argument_group("ruajtja / storage")
+    storage.add_argument(
+        "--perdoruesi",
+        "--user",
+        dest="perdoruesi",
+        metavar="EMRI",
+        help="Cili perdorues; parazgjedhja eshte i pari / which user to work as",
+    )
     storage.add_argument(
         "--baza",
         "--database",
@@ -652,7 +660,15 @@ def main(argv=None):
     colors.configure(force_off=args.pa_ngjyra)
 
     interactive = not any(getattr(args, name, None) for name in ACTION_FLAGS)
-    app = FinanceApp(path=args.baza or data_path(DATABASE_FILE), quiet=not interactive)
+    try:
+        app = FinanceApp(
+            path=args.baza or data_path(DATABASE_FILE),
+            quiet=not interactive,
+            user=args.perdoruesi,
+        )
+    except UnknownUser as error:
+        print(paint(t("unknown_user", name=error.args[0]), RED))
+        return 2
 
     # Catch up on anything due since the last run. --perserit reports the same
     # work in full, so the quiet pass is skipped in that case.

@@ -117,6 +117,31 @@ def parse_signed_amount(value):
 
 
 @dataclass
+class User:
+    """One person's finances.
+
+    The password is optional and unused by the command line: whoever can run
+    the program can open the database file directly, so a prompt would add
+    friction without adding protection. It exists so an account is ready for
+    the web interface, where it is the only thing protecting the data.
+    """
+
+    name: str
+    id: Optional[int] = None
+    password_hash: Optional[str] = None
+    password_salt: Optional[str] = None
+    password_iters: Optional[int] = None
+
+    @property
+    def key(self):
+        return name_key(self.name)
+
+    @property
+    def has_password(self):
+        return bool(self.password_hash and self.password_salt)
+
+
+@dataclass
 class Account:
     """Somewhere money sits: cash, a bank account, a card."""
 

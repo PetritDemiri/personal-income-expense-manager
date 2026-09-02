@@ -52,6 +52,48 @@ def stocked(app):
     return app, ids
 
 
+def schema_before_users():
+    """SCHEMA as it stood before version 7, for testing older migrations.
+
+    Built by removing what version 7 added rather than by keeping a copy of
+    the old text, so it cannot drift out of step with the real schema.
+    """
+    from personal_finance.schema import SCHEMA
+
+    text = SCHEMA
+    for fragment in (
+        "    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n",
+        "    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n",
+        "    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n",
+        "    user_id     INTEGER,\n",
+    ):
+        text = text.replace(fragment, "")
+
+    start = text.index("CREATE TABLE users (")
+    end = text.index("CREATE TABLE accounts (")
+    text = text[:start] + text[end:]
+
+    text = text.replace("    UNIQUE (user_id, name_key)\n);", "    dummy TEXT\n);")
+    text = text.replace("UNIQUE (user_id, name_key, kind)", "UNIQUE (name_key, kind)")
+    text = text.replace("UNIQUE (user_id, pattern_key)", "UNIQUE (pattern_key)")
+    return "\n".join(line for line in text.split("\n") if "_user " not in line)
+
+
+def audit_triggers_before_users():
+    """The audit triggers as they stood before they recorded a user."""
+    from personal_finance.schema import AUDITED_TABLES, audit_triggers
+
+    script = "".join(audit_triggers(table, columns) for table, columns in AUDITED_TABLES.items())
+    return (
+        script.replace(
+            "INSERT INTO audit_log (user_id, entity, entity_id, action, before_json, after_json)",
+            "INSERT INTO audit_log (entity, entity_id, action, before_json, after_json)",
+        )
+        .replace("VALUES (NEW.user_id, ", "VALUES (")
+        .replace("VALUES (OLD.user_id, ", "VALUES (")
+    )
+
+
 def make_view(
     kind=EXPENSE,
     description="Test",

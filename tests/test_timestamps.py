@@ -16,7 +16,6 @@ from personal_finance.models import Account, RecurringRule, Transaction
 from personal_finance.schema import (
     EXPENSE,
     MIGRATIONS,
-    SCHEMA,
     SCHEMA_VERSION,
     TOUCHED_TABLES,
 )
@@ -144,8 +143,10 @@ class TestMigrationFromVersionThree:
         SCHEMA is that on its own now - every trigger is generated separately
         and applied by create_schema.
         """
+        from .conftest import schema_before_users
+
         connection = sqlite3.connect(path)
-        connection.executescript(SCHEMA)
+        connection.executescript(schema_before_users())
         connection.execute("PRAGMA user_version = 3")
         connection.execute(
             "INSERT INTO accounts (name,name_key,kind,opening_cents) "

@@ -780,6 +780,128 @@ def account_menu(app):
 
 
 # ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+
+def show_users(app):
+    """Every user, and whether each has a password set."""
+    users = app.users()
+    current = app.user_id
+
+    names = [u.name for u in users]
+    w_name = max([len(t("field_name"))] + [len(v) for v in names])
+    w_pass = max(len(t("field_password")), len(t("user_has_password")))
+    total = 4 + w_name + 2 + w_pass + 4
+
+    print(paint(f"\n{t('users_title')}", BOLD, CYAN))
+    print("-" * total)
+    print(paint(f"{'#':<4}{t('field_name'):<{w_name}}  {t('field_password'):<{w_pass}}", BOLD))
+    print("-" * total)
+    for index, user in enumerate(users, start=1):
+        marker = " *" if user.id == current else ""
+        has = t("user_has_password") if user.has_password else t("user_no_password")
+        print(f"{index:<4}{user.name:<{w_name}}  {has:<{w_pass}}{marker}")
+    print("-" * total)
+    print(paint(t("password_note"), DIM))
+
+
+def add_user(app):
+    name = prompt_name("ask_user_name")
+    if name is None:
+        return
+    if app.user_exists(name):
+        print(paint(t("user_exists"), RED))
+        return
+    app.add_user(name)
+    print(paint(t("user_added", name=name), BOLD))
+
+
+def pick_user(app):
+    show_users(app)
+    users = app.users()
+    index = prompt_index(len(users), t("ask_number_user"))
+    return users[index] if index is not None else None
+
+
+def rename_user(app):
+    user = pick_user(app)
+    if user is None:
+        return
+    name = prompt_name("ask_rename", current=user.name)
+    if name is None:
+        return
+    existing = [u for u in app.users() if u.key == name.casefold() and u.id != user.id]
+    if existing:
+        print(paint(t("user_exists"), RED))
+        return
+    app.rename_user(user.id, name)
+    print(paint(t("user_renamed", name=name), BOLD))
+
+
+def set_user_password(app):
+    """Set or clear a password, for the web interface to use later."""
+    user = pick_user(app)
+    if user is None:
+        return
+    print(paint(t("password_note"), DIM))
+    password = input(t("ask_password"))
+    if password in cancels():
+        print(t("cancelled"))
+        return
+    app.set_password(user.id, password or None)
+    key = "user_password_set" if password else "user_password_cleared"
+    print(paint(t(key, name=user.name), BOLD))
+
+
+def delete_user(app):
+    users = app.users()
+    if len(users) < 2:
+        print(paint(t("user_delete_last"), YELLOW))
+        return
+    user = pick_user(app)
+    if user is None:
+        return
+    if user.id == app.user_id:
+        print(paint(t("user_delete_current"), RED))
+        return
+
+    answer = input(t("user_confirm_delete", name=user.name)).strip()
+    if answer not in affirmatives():
+        print(t("cancelled"))
+        return
+    app.delete_user(user.id)
+    print(paint(t("user_deleted", name=user.name), YELLOW))
+
+
+def users_menu(app):
+    while True:
+        print(paint(f"\n{t('menu_users')}:", BOLD, CYAN))
+        print(f"1. {t('user_menu_view')}")
+        print(f"2. {t('user_menu_add')}")
+        print(f"3. {t('user_menu_rename')}")
+        print(f"4. {t('user_menu_password')}")
+        print(f"5. {t('user_menu_delete')}")
+        print(f"6. {t('back')}")
+
+        choice = prompt_menu_choice(1, 6)
+        if choice == "1":
+            show_users(app)
+        elif choice == "2":
+            add_user(app)
+        elif choice == "3":
+            rename_user(app)
+        elif choice == "4":
+            set_user_password(app)
+        elif choice == "5":
+            delete_user(app)
+        elif choice == "6":
+            return
+        else:
+            print(paint(t("invalid_choice", low=1, high=6), RED))
+
+
+# ---------------------------------------------------------------------------
 # Category rules
 # ---------------------------------------------------------------------------
 
@@ -1553,6 +1675,7 @@ MENU_ITEMS = [
     ("menu_recurring", recurring_menu),
     ("menu_export", export_to_csv),
     ("menu_rules", rules_menu),
+    ("menu_users", users_menu),
     ("menu_import", import_from_file),
     ("menu_history", history_menu),
     ("menu_exit", None),
@@ -1562,6 +1685,10 @@ MENU_ITEMS = [
 def run_menu(app):
     """The interactive loop."""
     print(paint(t("welcome"), BOLD, CYAN))
+    # Named only when there is more than one, so a single-person installation
+    # never sees a concept it does not use.
+    if len(app.users()) > 1:
+        print(paint(t("user_current", name=app.current_user().name), DIM))
     count = len(MENU_ITEMS)
 
     while True:

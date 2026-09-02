@@ -28,9 +28,22 @@ from .models import (
     RecurringRule,
     Subcategory,
     TransactionView,
+    User,
     name_key,
 )
-from .schema import EXPENSE, SCHEMA_VERSION, create_schema, migrate
+from .passwords import hash_password, verify_password
+from .schema import (
+    DEFAULT_USER_NAME,
+    EXPENSE,
+    SCHEMA_VERSION,
+    create_schema,
+    migrate,
+)
+
+
+class UnknownUser(Exception):
+    """A named user that does not exist."""
+
 
 CENTS = Decimal("0.01")
 
@@ -77,14 +90,17 @@ def from_iso(iso_text):
 class Database:
     """A SQLite database holding one person's finances."""
 
-    def __init__(self, path):
+    def __init__(self, path, user=None):
         self.path = path
+        self._requested_user = user
+        self._user_id = None
         directory = os.path.dirname(os.path.abspath(path))
         if directory:
             os.makedirs(directory, exist_ok=True)
         self.created = not os.path.exists(path)
         self._connection = None
         self._ensure_schema()
+        self._ensure_user()
 
     # -- connection --------------------------------------------------------
 
@@ -139,15 +155,187 @@ class Database:
         version = self.schema_version
         if version == SCHEMA_VERSION:
             return
-        with self.connection:
-            if version == 0:
+
+        if version == 0:
+            with self.connection:
                 create_schema(self.connection)
-            else:
+            return
+
+        # Foreign keys are switched off for the duration. A migration that
+        # rebuilds a table has to drop the original, and with them enabled
+        # that cascades into every table referencing it. The pragma is a
+        # no-op inside a transaction, so it is set outside one.
+        before = self._totals()
+        self.connection.execute("PRAGMA foreign_keys = OFF")
+        try:
+            with self.connection:
                 migrate(self.connection, version)
+                broken = self.connection.execute("PRAGMA foreign_key_check").fetchall()
+                if broken:
+                    raise RuntimeError(f"migrimi la {len(broken)} referenca te thyera")
+                after = self._totals()
+                # Only what existed beforehand is compared. A migration may
+                # legitimately add a table, and that is not data loss; a row
+                # or a cent going missing is.
+                lost = {
+                    key: (value, after.get(key))
+                    for key, value in before.items()
+                    if after.get(key) != value
+                }
+                if lost:
+                    raise RuntimeError(f"migrimi ndryshoi te dhenat: {lost}")
+        finally:
+            self.connection.execute("PRAGMA foreign_keys = ON")
+
+    # -- users -------------------------------------------------------------
+
+    def _ensure_user(self):
+        """Settle whose data this session is working with.
+
+        A database always has at least one user. With none named, the first is
+        used - which is every single-person installation, and is why the
+        command line can stay unchanged for anyone who never creates a second.
+        """
+        rows = list(self.connection.execute("SELECT id, name_key FROM users ORDER BY id"))
+        if not rows:
+            with self.connection:
+                cursor = self.connection.execute(
+                    "INSERT INTO users (name, name_key) VALUES (?, ?)",
+                    (DEFAULT_USER_NAME, name_key(DEFAULT_USER_NAME)),
+                )
+            self._user_id = cursor.lastrowid
+            return
+
+        if self._requested_user:
+            wanted = name_key(self._requested_user)
+            for row in rows:
+                if row["name_key"] == wanted:
+                    self._user_id = row["id"]
+                    return
+            raise UnknownUser(self._requested_user)
+
+        self._user_id = rows[0]["id"]
+
+    @property
+    def user_id(self):
+        return self._user_id
+
+    @staticmethod
+    def _user(row):
+        return User(
+            id=row["id"],
+            name=row["name"],
+            password_hash=row["password_hash"],
+            password_salt=row["password_salt"],
+            password_iters=row["password_iters"],
+        )
+
+    def users(self):
+        rows = self.connection.execute("SELECT * FROM users ORDER BY id")
+        return [self._user(row) for row in rows]
+
+    def user(self, user_id=None):
+        row = self.connection.execute(
+            "SELECT * FROM users WHERE id = ?", (user_id or self._user_id,)
+        ).fetchone()
+        return self._user(row) if row else None
+
+    def user_by_name(self, name):
+        row = self.connection.execute(
+            "SELECT * FROM users WHERE name_key = ?", (name_key(name),)
+        ).fetchone()
+        return self._user(row) if row else None
+
+    def add_user(self, name, password=None):
+        values = [name, name_key(name), None, None, None]
+        if password:
+            values[2], values[3], values[4] = hash_password(password)
+        with self.connection as conn:
+            cursor = conn.execute(
+                "INSERT INTO users (name, name_key, password_hash, password_salt, "
+                " password_iters) VALUES (?, ?, ?, ?, ?)",
+                values,
+            )
+        return cursor.lastrowid
+
+    def set_password(self, user_id, password):
+        """Store a password hash, or clear it when given nothing."""
+        if password:
+            digest, salt, iterations = hash_password(password)
+        else:
+            digest = salt = iterations = None
+        with self.connection as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = ?, password_salt = ?, "
+                " password_iters = ? WHERE id = ?",
+                (digest, salt, iterations, user_id),
+            )
+
+    def check_password(self, user_id, password):
+        user = self.user(user_id)
+        if user is None or not user.has_password:
+            return False
+        return verify_password(
+            password, user.password_hash, user.password_salt, user.password_iters
+        )
+
+    def rename_user(self, user_id, name):
+        with self.connection as conn:
+            conn.execute(
+                "UPDATE users SET name = ?, name_key = ? WHERE id = ?",
+                (name, name_key(name), user_id),
+            )
+
+    def delete_user(self, user_id):
+        """Delete a user and everything they own.
+
+        Cascades through every table. There is no softer option: their data
+        means nothing without them, and leaving it orphaned would be worse
+        than removing it.
+        """
+        with self.connection as conn:
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    def _totals(self):
+        """Row counts and money totals, for checking a migration changed nothing.
+
+        A migration that rebuilds tables holding real money should have to
+        prove it moved none of it. Anything missing here rolls the whole
+        upgrade back rather than leaving a database that looks fine.
+        """
+        counted = {}
+        for table in (
+            "transactions",
+            "accounts",
+            "categories",
+            "subcategories",
+            "recurring_rules",
+            "budgets",
+            "category_rules",
+        ):
+            exists = self.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?", (table,)
+            ).fetchone()
+            if not exists:
+                continue
+            counted[table] = self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+        if "transactions" in counted:
+            counted["amount_cents"] = self.connection.execute(
+                "SELECT COALESCE(SUM(amount_cents), 0) FROM transactions"
+            ).fetchone()[0]
+        if "accounts" in counted:
+            counted["opening_cents"] = self.connection.execute(
+                "SELECT COALESCE(SUM(opening_cents), 0) FROM accounts"
+            ).fetchone()[0]
+        return counted
 
     def is_empty(self):
         for table in ("transactions", "accounts", "categories", "budgets"):
-            if self.connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone():
+            found = self.connection.execute(
+                f"SELECT 1 FROM {table} WHERE user_id = ? LIMIT 1", (self._user_id,)
+            ).fetchone()
+            if found:
                 return False
         return True
 
@@ -164,27 +352,33 @@ class Database:
         )
 
     def accounts(self):
-        rows = self.connection.execute("SELECT * FROM accounts ORDER BY position, id")
+        rows = self.connection.execute(
+            "SELECT * FROM accounts WHERE user_id = ? ORDER BY position, id",
+            (self._user_id,),
+        )
         return [self._account(row) for row in rows]
 
     def account(self, account_id):
         row = self.connection.execute(
-            "SELECT * FROM accounts WHERE id = ?", (account_id,)
+            "SELECT * FROM accounts WHERE id = ? AND user_id = ?",
+            (account_id, self._user_id),
         ).fetchone()
         return self._account(row) if row else None
 
     def account_by_name(self, name):
         row = self.connection.execute(
-            "SELECT * FROM accounts WHERE name_key = ?", (name_key(name),)
+            "SELECT * FROM accounts WHERE name_key = ? AND user_id = ?",
+            (name_key(name), self._user_id),
         ).fetchone()
         return self._account(row) if row else None
 
     def add_account(self, account):
         with self.connection as conn:
             cursor = conn.execute(
-                "INSERT INTO accounts (name, name_key, kind, opening_cents, position) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO accounts (user_id, name, name_key, kind, opening_cents, position) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
+                    self._user_id,
                     account.name,
                     account.key,
                     account.kind,
@@ -225,31 +419,36 @@ class Database:
 
     def categories(self, kind=None):
         if kind is None:
-            rows = self.connection.execute("SELECT * FROM categories ORDER BY name")
+            rows = self.connection.execute(
+                "SELECT * FROM categories WHERE user_id = ? ORDER BY name",
+                (self._user_id,),
+            )
         else:
             rows = self.connection.execute(
-                "SELECT * FROM categories WHERE kind = ? ORDER BY name", (kind,)
+                "SELECT * FROM categories WHERE kind = ? AND user_id = ? ORDER BY name",
+                (kind, self._user_id),
             )
         return [self._category(row) for row in rows]
 
     def category(self, category_id):
         row = self.connection.execute(
-            "SELECT * FROM categories WHERE id = ?", (category_id,)
+            "SELECT * FROM categories WHERE id = ? AND user_id = ?",
+            (category_id, self._user_id),
         ).fetchone()
         return self._category(row) if row else None
 
     def category_by_name(self, name, kind):
         row = self.connection.execute(
-            "SELECT * FROM categories WHERE name_key = ? AND kind = ?",
-            (name_key(name), kind),
+            "SELECT * FROM categories WHERE name_key = ? AND kind = ? AND user_id = ?",
+            (name_key(name), kind, self._user_id),
         ).fetchone()
         return self._category(row) if row else None
 
     def add_category(self, category):
         with self.connection as conn:
             cursor = conn.execute(
-                "INSERT INTO categories (name, name_key, kind) VALUES (?, ?, ?)",
-                (category.name, category.key, category.kind),
+                "INSERT INTO categories (user_id, name, name_key, kind) VALUES (?, ?, ?, ?)",
+                (self._user_id, category.name, category.key, category.kind),
             )
         category.id = cursor.lastrowid
         return category.id
@@ -292,29 +491,31 @@ class Database:
 
     def subcategories(self, category_id):
         rows = self.connection.execute(
-            "SELECT * FROM subcategories WHERE category_id = ? ORDER BY name",
-            (category_id,),
+            "SELECT * FROM subcategories WHERE category_id = ? AND user_id = ? ORDER BY name",
+            (category_id, self._user_id),
         )
         return [self._subcategory(row) for row in rows]
 
     def subcategory(self, subcategory_id):
         row = self.connection.execute(
-            "SELECT * FROM subcategories WHERE id = ?", (subcategory_id,)
+            "SELECT * FROM subcategories WHERE id = ? AND user_id = ?",
+            (subcategory_id, self._user_id),
         ).fetchone()
         return self._subcategory(row) if row else None
 
     def subcategory_by_name(self, name, category_id):
         row = self.connection.execute(
-            "SELECT * FROM subcategories WHERE name_key = ? AND category_id = ?",
-            (name_key(name), category_id),
+            "SELECT * FROM subcategories WHERE name_key = ? AND category_id = ? AND user_id = ?",
+            (name_key(name), category_id, self._user_id),
         ).fetchone()
         return self._subcategory(row) if row else None
 
     def add_subcategory(self, subcategory):
         with self.connection as conn:
             cursor = conn.execute(
-                "INSERT INTO subcategories (name, name_key, category_id) VALUES (?, ?, ?)",
-                (subcategory.name, subcategory.key, subcategory.category_id),
+                "INSERT INTO subcategories (user_id, name, name_key, category_id) "
+                "VALUES (?, ?, ?, ?)",
+                (self._user_id, subcategory.name, subcategory.key, subcategory.category_id),
             )
         subcategory.id = cursor.lastrowid
         return subcategory.id
@@ -377,7 +578,7 @@ class Database:
         everything and looping. `start` and `end` are date objects and both
         bounds are inclusive.
         """
-        clauses, values = [], []
+        clauses, values = ["t.user_id = ?"], [self._user_id]
 
         # Every column is qualified with its table. The query joins categories
         # and subcategories, both of which also have a `name`, and the joined
@@ -445,23 +646,26 @@ class Database:
             "LEFT JOIN subcategories s ON s.id  = t.subcategory_id "
             "LEFT JOIN accounts a      ON a.id  = t.account_id "
             "LEFT JOIN accounts a2     ON a2.id = t.to_account_id "
-            "WHERE t.id = ?",
-            (transaction_id,),
+            "WHERE t.id = ? AND t.user_id = ?",
+            (transaction_id, self._user_id),
         ).fetchone()
         return self._view(row) if row else None
 
     def count_transactions(self):
-        return self.connection.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        return self.connection.execute(
+            "SELECT COUNT(*) FROM transactions WHERE user_id = ?", (self._user_id,)
+        ).fetchone()[0]
 
     def add_transaction(self, transaction, connection=None):
         """Insert one transaction. Returns its new id."""
         conn = connection or self.connection
         sql = (
-            "INSERT INTO transactions (kind, description, amount_cents, occurred_on, "
-            " category_id, subcategory_id, account_id, to_account_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO transactions (user_id, kind, description, amount_cents, "
+            " occurred_on, category_id, subcategory_id, account_id, to_account_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         values = (
+            self._user_id,
             transaction.kind,
             transaction.description,
             to_cents(transaction.amount),
@@ -535,17 +739,21 @@ class Database:
         )
 
     def recurring_rules(self):
-        rows = self.connection.execute("SELECT * FROM recurring_rules ORDER BY id")
+        rows = self.connection.execute(
+            "SELECT * FROM recurring_rules WHERE user_id = ? ORDER BY id",
+            (self._user_id,),
+        )
         return [self._rule(row) for row in rows]
 
     def add_recurring_rule(self, rule):
         with self.connection as conn:
             cursor = conn.execute(
-                "INSERT INTO recurring_rules (kind, description, amount_cents, "
-                " category_id, subcategory_id, account_id, to_account_id, "
-                " frequency, starts_on, generated_upto) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO recurring_rules (user_id, kind, description, "
+                " amount_cents, category_id, subcategory_id, account_id, "
+                " to_account_id, frequency, starts_on, generated_upto) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
+                    self._user_id,
                     rule.kind,
                     rule.description,
                     to_cents(rule.amount),
@@ -587,13 +795,16 @@ class Database:
 
     def budgets(self):
         rows = self.connection.execute(
-            "SELECT b.* FROM budgets b JOIN categories c ON c.id = b.category_id ORDER BY c.name"
+            "SELECT b.* FROM budgets b JOIN categories c ON c.id = b.category_id "
+            "WHERE b.user_id = ? ORDER BY c.name",
+            (self._user_id,),
         )
         return [self._budget(row) for row in rows]
 
     def budget_for(self, category_id):
         row = self.connection.execute(
-            "SELECT * FROM budgets WHERE category_id = ?", (category_id,)
+            "SELECT * FROM budgets WHERE category_id = ? AND user_id = ?",
+            (category_id, self._user_id),
         ).fetchone()
         return self._budget(row) if row else None
 
@@ -601,9 +812,9 @@ class Database:
         """Create or replace the limit on one category."""
         with self.connection as conn:
             conn.execute(
-                "INSERT INTO budgets (category_id, limit_cents) VALUES (?, ?) "
+                "INSERT INTO budgets (user_id, category_id, limit_cents) VALUES (?, ?, ?) "
                 "ON CONFLICT(category_id) DO UPDATE SET limit_cents = excluded.limit_cents",
-                (category_id, to_cents(amount)),
+                (self._user_id, category_id, to_cents(amount)),
             )
 
     def delete_budget(self, category_id):
@@ -630,7 +841,8 @@ class Database:
             "FROM category_rules r "
             "LEFT JOIN categories c    ON c.id = r.category_id "
             "LEFT JOIN subcategories s ON s.id = r.subcategory_id "
-            "ORDER BY length(r.pattern_key) DESC, r.pattern"
+            "WHERE r.user_id = ? ORDER BY length(r.pattern_key) DESC, r.pattern",
+            (self._user_id,),
         )
         return [self._rule_row(row) for row in rows]
 
@@ -640,17 +852,17 @@ class Database:
             "FROM category_rules r "
             "LEFT JOIN categories c    ON c.id = r.category_id "
             "LEFT JOIN subcategories s ON s.id = r.subcategory_id "
-            "WHERE r.pattern_key = ?",
-            (name_key(pattern),),
+            "WHERE r.pattern_key = ? AND r.user_id = ?",
+            (name_key(pattern), self._user_id),
         ).fetchone()
         return self._rule_row(row) if row else None
 
     def add_category_rule(self, rule):
         with self.connection as conn:
             cursor = conn.execute(
-                "INSERT INTO category_rules (pattern, pattern_key, category_id, "
-                " subcategory_id) VALUES (?, ?, ?, ?)",
-                (rule.pattern, rule.key, rule.category_id, rule.subcategory_id),
+                "INSERT INTO category_rules (user_id, pattern, pattern_key, category_id, "
+                " subcategory_id) VALUES (?, ?, ?, ?, ?)",
+                (self._user_id, rule.pattern, rule.key, rule.category_id, rule.subcategory_id),
             )
         rule.id = cursor.lastrowid
         return rule.id
@@ -682,8 +894,9 @@ class Database:
         """
         needle = f"%{pattern.strip()}%"
         return self.connection.execute(
-            "SELECT COUNT(*) FROM transactions WHERE description LIKE ? COLLATE NOCASE",
-            (needle,),
+            "SELECT COUNT(*) FROM transactions "
+            "WHERE user_id = ? AND description LIKE ? COLLATE NOCASE",
+            (self._user_id, needle),
         ).fetchone()[0]
 
     # -- audit log ---------------------------------------------------------
@@ -694,7 +907,7 @@ class Database:
         Narrow to one row by passing both entity and entity_id - "what has
         happened to this transaction?" is the question this is usually asked.
         """
-        clauses, values = [], []
+        clauses, values = ["user_id = ?"], [self._user_id]
         if entity is not None:
             clauses.append("entity = ?")
             values.append(entity)
@@ -709,7 +922,9 @@ class Database:
         return [AuditEntry.from_row(row) for row in self.connection.execute(sql, values)]
 
     def audit_count(self):
-        return self.connection.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+        return self.connection.execute(
+            "SELECT COUNT(*) FROM audit_log WHERE user_id = ?", (self._user_id,)
+        ).fetchone()[0]
 
     # -- aggregate queries -------------------------------------------------
 
@@ -718,7 +933,7 @@ class Database:
         prefix = f"{year:04d}-{month:02d}-%"
         row = self.connection.execute(
             "SELECT COALESCE(SUM(amount_cents), 0) FROM transactions "
-            "WHERE kind = ? AND category_id = ? AND occurred_on LIKE ?",
-            (EXPENSE, category_id, prefix),
+            "WHERE user_id = ? AND kind = ? AND category_id = ? AND occurred_on LIKE ?",
+            (self._user_id, EXPENSE, category_id, prefix),
         ).fetchone()
         return from_cents(row[0])

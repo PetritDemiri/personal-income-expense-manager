@@ -5,10 +5,51 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Sixteen versions are recorded below. Fifteen of them were released; 2.0.0 was a
+Seventeen versions are recorded below. Sixteen of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.7.0] — 2026-09-01
+
+Every row now has an owner, so version 4 can be a new interface rather than a
+new schema.
+
+### Added
+
+- Users. One database can hold several people's finances, kept entirely
+  separate: every account, category, transaction, budget and rule belongs to
+  exactly one person and no query crosses between them.
+- `--perdoruesi` to choose which user to work as, and menu option 17 to add,
+  rename, delete, and set passwords.
+- Password storage, hashed with PBKDF2-HMAC-SHA256, a random salt per password,
+  and the iteration count kept alongside so it can be raised later without
+  invalidating existing passwords.
+- The change history records which user made each change.
+- A migration that checks itself: row counts and money totals are compared
+  before and after, and anything missing rolls the whole upgrade back.
+
+### Changed
+
+- Name uniqueness is per-user rather than global, so two people can both have
+  an account called `Banka` and a category called `Ushqim`.
+
+### Notes
+
+- The command line never asks for a password. Whoever can run the program can
+  open the database file directly, so a prompt would add friction without
+  adding protection; the hash is for the web interface, where it is the only
+  thing between a stranger and someone's money.
+- Argon2 would be the better hashing algorithm. It needs a third-party package,
+  and this project has had no runtime dependency since version 1.
+- Anyone who never creates a second user sees no change: a database always has
+  one, everything belongs to them, and the interface does not mention it.
+- Schema version 7. Four tables are rebuilt because a UNIQUE constraint cannot
+  be altered in SQLite; three gain a column in place. Foreign keys are disabled
+  for the duration, since dropping a rebuilt table would otherwise cascade into
+  everything referencing it — which it did, on the first attempt, and the
+  verification caught it.
+- 861 tests, up from 821.
 
 ## [3.6.0] — 2026-08-31
 

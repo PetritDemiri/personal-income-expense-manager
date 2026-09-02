@@ -6,9 +6,7 @@
 
 A command-line personal income and expense manager, with an Albanian interface and an English option. Data lives in SQLite. No runtime dependencies — standard library only.
 
-
 ![Demo](demo.gif)
-
 
 ## Features
 
@@ -62,9 +60,10 @@ Running with no flags opens the interactive menu:
 | 14 | Transaksionet e Perseritura | Recurring Transactions |
 | 15 | Eksporto ne CSV | Export to CSV |
 | 16 | Rregullat e Kategorive | Category Rules |
-| 17 | Importo nga nje skedar | Import from a file |
-| 18 | Historiku i Ndryshimeve | Change History |
-| 19 | Dil nga programi | Exit |
+| 17 | Perdoruesit | Users |
+| 18 | Importo nga nje skedar | Import from a file |
+| 19 | Historiku i Ndryshimeve | Change History |
+| 20 | Dil nga programi | Exit |
 
 Dates use `dd-mm-yyyy`. When editing, each prompt shows the current value in brackets — press Enter to keep it.
 
@@ -101,6 +100,7 @@ Albanian flags are primary; English aliases work for all of them.
 | `--nga` | `--from` | Filter start date (inclusive) |
 | `--deri` | `--to` | Filter end date (inclusive) |
 | `--muaji` | `--month` | Month for the report (`mm-yyyy`) |
+| `--perdoruesi` | `--user` | Which user to work as; defaults to the first |
 | `--baza` | `--database` | Path to the database file |
 | `--gjuha` | `--language` | Interface language: `sq` (default) or `en` |
 | `--ndares` | `--delimiter` | Column delimiter for export (default `,`) |
@@ -143,6 +143,20 @@ a b c ç d dh e ë f g gj h i j k l ll m n nj o p q r rr s sh t th u v x xh y z 
 ```
 
 Each digraph is a letter in its own right, so every word beginning with S comes before every word beginning with Sh — `Sende`, `Sy`, then `Shendetesi`. Sorting by Unicode code point, which is what most languages do by default, interleaves them and pushes every accented word past Z.
+
+### Users
+
+One database can hold several people's finances, kept entirely separate. Every account, category, transaction, budget and rule belongs to exactly one person, and no query crosses between them.
+
+Anyone who never creates a second user sees no change at all: a database always has one, everything belongs to them, and the interface never mentions it. `--perdoruesi EMRI` switches, and menu option 17 manages them.
+
+Two people can both have an account called `Banka` and a category called `Ushqim`, which is why the uniqueness constraints are per-user rather than global.
+
+**Passwords are stored but never asked for on the command line.** Whoever can run the program can also open the database file directly, so a prompt there would add friction without adding protection — the file's own permissions are the boundary. The hash exists so an account is ready for the web interface, where a password is the only thing between a stranger and someone's money.
+
+They are hashed with PBKDF2-HMAC-SHA256, a random salt per password, and the iteration count stored alongside so it can be raised later without invalidating existing passwords. Argon2 would be the better algorithm and is what this would use in production; it needs a third-party package, and this project has had no runtime dependency since version 1.
+
+Deleting a user deletes everything they own. There is no softer option: the data means nothing without them, and leaving it orphaned would be worse.
 
 ### Category rules
 
