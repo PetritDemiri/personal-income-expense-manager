@@ -244,11 +244,25 @@ Account and card numbers are stripped from descriptions on the way in, along wit
 
 `--eksporto SKEDARI` writes the selected transactions to a CSV file. Every listing filter applies.
 
-A bare filename goes to your Documents folder rather than the current directory; anything with a directory in it is left alone. The full path is printed after the export. Finding Documents is not simply `~/Documents` — Windows relocates it and OneDrive commonly redirects it, so the path comes from the shell's registry record; Linux localizes the name, so it comes from the XDG user-dirs configuration.
+A bare filename goes to your Documents folder rather than the current directory; anything with a directory in it is left alone. Set `FINANCE_EXPORT_DIR` to send bare filenames somewhere else. The full path is printed after the export. Finding Documents is not simply `~/Documents` — Windows relocates it and OneDrive commonly redirects it, so the path comes from the shell's registry record; Linux localizes the name, so it comes from the XDG user-dirs configuration.
 
 The file is written as UTF-8 with a byte order mark, without which Excel mangles every `ë` and `ç`. Amounts are plain decimals with no currency symbol. Use `--ndares ";"` if your spreadsheet expects semicolons.
 
 Export is one-directional. Reading a file back in is a separate feature, described under [Importing](#importing).
+
+### Colours
+
+Income is green, expenses red, transfers cyan, and a budget turns yellow as it approaches its limit and red once past it.
+
+Colour is decided once at start-up, in this order:
+
+1. `--pa-ngjyra` turns it off outright
+2. `NO_COLOR` set to anything turns it off — the [no-color.org](https://no-color.org) convention
+3. `FORCE_COLOR` set to anything turns it on
+4. Otherwise, on only when writing to a terminal, so a redirect to a file or a pipe into another command gets plain text rather than escape codes
+5. `TERM=dumb` turns it off
+
+On Windows, ANSI support is switched on through the console API at start-up; if that call fails the program falls back to plain text rather than printing escape codes at you.
 
 ### Charts
 
