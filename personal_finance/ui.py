@@ -12,11 +12,13 @@ from decimal import Decimal, InvalidOperation
 
 from .accounts import balances_for, count_unassigned, find_account
 from .budgets import all_statuses
+from .charts import SPANS, account_bars, category_bars, monthly_bars
 from .colors import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint, type_color
 from .config import CLEAR_MARKER
 from .dates import (
     current_date_str,
     format_date,
+    format_month,
     month_of,
     parse_date,
     parse_month,
@@ -26,11 +28,14 @@ from .dates import (
 from .display import (
     category_path,
     money,
+    print_account_chart,
     print_accounts,
     print_budget_warning,
     print_budgets,
     print_candidates,
+    print_category_chart,
     print_history,
+    print_monthly_chart,
     print_monthly_report,
     print_recurring,
     print_summary,
@@ -777,6 +782,68 @@ def account_menu(app):
             return
         else:
             print(paint(t("invalid_choice", low=1, high=6), RED))
+
+
+# ---------------------------------------------------------------------------
+# Charts
+# ---------------------------------------------------------------------------
+
+
+def prompt_span():
+    """Ask over how many months to draw. None if cancelled."""
+    spans = ", ".join(str(s) for s in SPANS)
+    while True:
+        raw = input(t("ask_span", spans=spans))
+        if raw in cancels():
+            print(t("cancelled"))
+            return None
+        if raw.isdigit() and int(raw) in SPANS:
+            return int(raw)
+        print(paint(t("invalid_span", spans=spans), RED))
+
+
+def show_category_chart(app, kind):
+    year, month = month_of(today())
+    bars = category_bars(app.transactions(), kind, year, month)
+    key = "chart_categories_title" if kind == EXPENSE else "chart_income_title"
+    print_category_chart(bars, t(key, month=format_month(year, month)), type_color(kind))
+
+
+def show_monthly_chart(app, span=None):
+    span = span or prompt_span()
+    if span is None:
+        return
+    _months, income, expenses = monthly_bars(app.transactions(), today(), span)
+    print_monthly_chart(income, expenses, t("chart_months_title", span=span))
+
+
+def show_account_chart(app):
+    bars = account_bars(balances_for(app.accounts(), app.transactions()))
+    print_account_chart(bars, t("chart_accounts_title"))
+
+
+def charts_menu(app):
+    while True:
+        print(paint(f"\n{t('menu_charts')}:", BOLD, CYAN))
+        print(f"1. {t('chart_menu_categories')}")
+        print(f"2. {t('chart_menu_income')}")
+        print(f"3. {t('chart_menu_months')}")
+        print(f"4. {t('chart_menu_accounts')}")
+        print(f"5. {t('back')}")
+
+        choice = prompt_menu_choice(1, 5)
+        if choice == "1":
+            show_category_chart(app, EXPENSE)
+        elif choice == "2":
+            show_category_chart(app, INCOME)
+        elif choice == "3":
+            show_monthly_chart(app)
+        elif choice == "4":
+            show_account_chart(app)
+        elif choice == "5":
+            return
+        else:
+            print(paint(t("invalid_choice", low=1, high=5), RED))
 
 
 # ---------------------------------------------------------------------------
@@ -1668,6 +1735,7 @@ MENU_ITEMS = [
     ("menu_filter", filter_menu),
     ("menu_search", search_transactions),
     ("menu_report", report_menu),
+    ("menu_charts", charts_menu),
     ("menu_categories", category_menu),
     ("menu_budgets", budget_menu),
     ("menu_accounts", account_menu),

@@ -646,3 +646,94 @@ def print_candidates(candidates, decimal_separator=None, date_label=None):
     print("-" * total)
     chosen = sum(1 for c in candidates if c.will_import)
     print(paint(t("import_selected", count=chosen, total=len(candidates)), BOLD))
+
+
+# A three-quarter block rather than a full one. A full block fills the whole
+# character cell, so stacked rows run together into a solid mass with no gap
+# between them - terminals have no line spacing to separate them. This leaves
+# the top quarter empty, which reads as separate bars.
+BAR_FULL = "▆"
+BAR_EMPTY = " "
+BAR_WIDTH = 28
+
+
+def bar_of(fraction, width=BAR_WIDTH):
+    """A bar of `width` characters, filled to `fraction`.
+
+    A non-zero amount always gets at least one block, so a small category is
+    visibly present rather than looking like nothing at all.
+    """
+    filled = int((fraction or 0) * width)
+    if filled == 0 and fraction and fraction > 0:
+        filled = 1
+    return BAR_FULL * filled + BAR_EMPTY * (width - filled)
+
+
+def print_category_chart(bars, title, color=None):
+    """A horizontal bar per category, largest first."""
+    from .charts import has_data, percent
+
+    print(paint(f"\n{title}", BOLD, CYAN))
+    if not has_data(bars):
+        print(paint(t("no_chart_data"), YELLOW))
+        return
+
+    labels = {i: category_display(b.label) for i, b in enumerate(bars)}
+    amounts = {i: money(b.amount) for i, b in enumerate(bars)}
+    w_label = max(len(v) for v in labels.values())
+    w_amount = max(len(v) for v in amounts.values())
+
+    for index, bar in enumerate(bars):
+        line = (
+            f"  {labels[index]:<{w_label}}  {bar_of(bar.fraction)}  "
+            f"{amounts[index]:>{w_amount}}  {percent(bar.share):>3}%"
+        )
+        print(paint(line, color) if color else line)
+
+
+def print_monthly_chart(income_bars, expense_bars, title):
+    """Income and expenses side by side, one row per month."""
+    from .charts import has_data
+
+    print(paint(f"\n{title}", BOLD, CYAN))
+    if not has_data(income_bars) and not has_data(expense_bars):
+        print(paint(t("no_chart_data"), YELLOW))
+        return
+
+    half = BAR_WIDTH // 2
+    w_amount = max([len(money(b.amount)) for b in income_bars + expense_bars] or [6])
+
+    print(
+        paint(
+            f"  {'':<7}  {t('field_income'):<{half + w_amount + 2}}  {t('field_expenses')}",
+            DIM,
+        )
+    )
+    for earned, spent in zip(income_bars, expense_bars):
+        line = (
+            f"  {earned.label:<7}  {bar_of(earned.fraction, half)} "
+            f"{money(earned.amount):>{w_amount}}"
+            f"  {bar_of(spent.fraction, half)} {money(spent.amount):>{w_amount}}"
+        )
+        print(line)
+
+
+def print_account_chart(bars, title):
+    """A bar per account. Negative balances are drawn to the left of zero."""
+    from .charts import has_data
+
+    print(paint(f"\n{title}", BOLD, CYAN))
+    if not has_data(bars):
+        print(paint(t("no_chart_data"), YELLOW))
+        return
+
+    labels = {i: account_display(b.label) for i, b in enumerate(bars)}
+    amounts = {i: money(b.amount) for i, b in enumerate(bars)}
+    w_label = max(len(v) for v in labels.values())
+    w_amount = max(len(v) for v in amounts.values())
+
+    for index, bar in enumerate(bars):
+        drawn = bar_of(bar.fraction)
+        colour = RED if bar.amount < 0 else GREEN
+        line = f"  {labels[index]:<{w_label}}  {drawn}  {amounts[index]:>{w_amount}}"
+        print(paint(line, colour))

@@ -13,7 +13,7 @@ from . import colors
 from .accounts import balances_for, count_unassigned, find_account
 from .app import FinanceApp
 from .budgets import all_statuses
-from .colors import BOLD, RED, YELLOW, paint
+from .colors import BOLD, RED, YELLOW, paint, type_color
 from .config import DATABASE_FILE, data_path
 from .database import UnknownUser
 from .dates import current_date_str, format_date, month_of, parse_date, parse_month, today
@@ -55,6 +55,7 @@ ACTION_FLAGS = (
     "eksporto",
     "historia",
     "importo",
+    "grafiku",
 )
 
 
@@ -185,6 +186,16 @@ def build_parser():
         metavar="NUMRI",
         help="Shfaq historikun e ndryshimeve; me nje numer, vetem ate "
         "transaksion / show the change history",
+    )
+    actions.add_argument(
+        "--grafiku",
+        "--chart",
+        dest="grafiku",
+        nargs="?",
+        const="",
+        metavar="MUAJT",
+        help="Shfaq grafiket; me nje numer muajsh (3, 6 ose 12) shfaq grafikun "
+        "muaj pas muaji / show charts",
     )
     actions.add_argument(
         "--importo",
@@ -535,6 +546,46 @@ def do_history(app, args):
     )
 
 
+def do_charts(app, args):
+    """Draw the charts. A number of months draws only the monthly one."""
+    from .charts import SPANS, account_bars, category_bars, monthly_bars
+    from .dates import format_month
+    from .display import (
+        print_account_chart,
+        print_category_chart,
+        print_monthly_chart,
+    )
+
+    rows = app.transactions()
+    year, month = month_of(today())
+
+    if args.grafiku:
+        if not args.grafiku.isdigit() or int(args.grafiku) not in SPANS:
+            spans = ", ".join(str(s) for s in SPANS)
+            print(paint(t("invalid_span", spans=spans), RED))
+            return
+        span = int(args.grafiku)
+        _months, income, expenses = monthly_bars(rows, today(), span)
+        print_monthly_chart(income, expenses, t("chart_months_title", span=span))
+        return
+
+    print_category_chart(
+        category_bars(rows, EXPENSE, year, month),
+        t("chart_categories_title", month=format_month(year, month)),
+        type_color(EXPENSE),
+    )
+    print_category_chart(
+        category_bars(rows, INCOME, year, month),
+        t("chart_income_title", month=format_month(year, month)),
+        type_color(INCOME),
+    )
+    if app.has_accounts():
+        print_account_chart(
+            account_bars(balances_for(app.accounts(), rows)),
+            t("chart_accounts_title"),
+        )
+
+
 def do_report(app, args):
     if args.muaji:
         parsed = parse_month(args.muaji)
@@ -623,6 +674,10 @@ def run_cli(app, args):
             year,
             month,
         )
+        did_something = True
+
+    if args.grafiku is not None:
+        do_charts(app, args)
         did_something = True
 
     if args.raporti:

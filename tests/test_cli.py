@@ -549,3 +549,41 @@ class TestHistoryFlag:
         output = capsys.readouterr().out
         assert output.count("Ndryshuar transaksion") == 1
         assert "€300.00  ->  €350.00" in output
+
+
+class TestChartsFlag:
+    def test_charts_are_drawn(self, capsys):
+        add_expense("Qera", "300", datetime.date.today().strftime("%d-%m-%Y"), "Qera")
+        capsys.readouterr()
+        main(["--grafiku"])
+        output = capsys.readouterr().out
+        assert "sipas kategorise" in output
+        assert "▆" in output
+
+    def test_a_month_span_draws_the_monthly_chart(self, capsys):
+        add_expense("Qera", "300", datetime.date.today().strftime("%d-%m-%Y"), "Qera")
+        capsys.readouterr()
+        main(["--grafiku", "3"])
+        output = capsys.readouterr().out
+        assert "3 muajt e fundit" in output
+
+    @pytest.mark.parametrize("span", ["3", "6", "12"])
+    def test_each_offered_span(self, capsys, span):
+        add_expense("Qera", "300", datetime.date.today().strftime("%d-%m-%Y"), "Qera")
+        capsys.readouterr()
+        main(["--grafiku", span])
+        assert f"{span} muajt e fundit" in capsys.readouterr().out
+
+    def test_an_unoffered_span_is_refused(self, capsys):
+        main(["--grafiku", "5"])
+        assert "Zgjidhni nje nga" in capsys.readouterr().out
+
+    def test_an_empty_database_says_so(self, capsys):
+        main(["--grafiku"])
+        assert "Nuk ka te dhena" in capsys.readouterr().out
+
+    def test_english_alias(self, capsys):
+        add_expense("Qera", "300", datetime.date.today().strftime("%d-%m-%Y"), "Qera")
+        capsys.readouterr()
+        main(["--gjuha", "en", "--chart"])
+        assert "by category" in capsys.readouterr().out

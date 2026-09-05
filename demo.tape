@@ -22,7 +22,7 @@ Output demo.gif
 
 Set FontSize 15
 Set Width 1150
-Set Height 760
+Set Height 900
 Set Padding 18
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 45ms
@@ -58,7 +58,7 @@ Show
 # because something uses them.
 Type "financat --lista"
 Enter
-Sleep 4s
+Sleep 5s
 
 # Summary, category breakdown, and per-account balances. The transfer is
 # counted as neither income nor spending.
@@ -69,19 +69,29 @@ Sleep 5s
 # Monthly report with a per-category breakdown.
 Type "financat --raporti"
 Enter
-Sleep 4s
+Sleep 5s
 
 # Budget usage, warning as the limit approaches.
 Type "financat --buxhetet"
 Enter
-Sleep 3s
+Sleep 5s
+
+# Spending by category, income by category, and every account balance.
+Type "financat --grafiku"
+Enter
+Sleep 5s
+
+# Income against spending, month by month.
+Type "financat --grafiku 6"
+Enter
+Sleep 5s
 
 # Every change to financial data is recorded.
 Type "financat --historia"
 Enter
-Sleep 4s
+Sleep 5s
 
 # The same data in English. Stored values stay Albanian; only labels change.
 Type "financat --gjuha en --balance"
 Enter
-Sleep 4s
+Sleep 5s

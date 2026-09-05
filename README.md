@@ -1,7 +1,7 @@
 # Personal Finance Manager
 
 [![CI](https://github.com/PetritDemiri/personal-income-expense-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/PetritDemiri/personal-income-expense-manager/actions/workflows/ci.yml)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A command-line personal income and expense manager, with an Albanian interface and an English option. Data lives in SQLite. No runtime dependencies — standard library only.
@@ -53,17 +53,18 @@ Running with no flags opens the interactive menu:
 | 7 | Filtro sipas Dates | Filter by Date |
 | 8 | Kerko Transaksione | Search Transactions |
 | 9 | Raporti Mujor | Monthly Report |
-| 10 | Kategorite | Categories |
-| 11 | Buxhetet | Budgets |
-| 12 | Llogarite | Accounts |
-| 13 | Transfero mes Llogarive | Transfer Between Accounts |
-| 14 | Transaksionet e Perseritura | Recurring Transactions |
-| 15 | Eksporto ne CSV | Export to CSV |
-| 16 | Rregullat e Kategorive | Category Rules |
-| 17 | Perdoruesit | Users |
-| 18 | Importo nga nje skedar | Import from a file |
-| 19 | Historiku i Ndryshimeve | Change History |
-| 20 | Dil nga programi | Exit |
+| 10 | Grafiket | Charts |
+| 11 | Kategorite | Categories |
+| 12 | Buxhetet | Budgets |
+| 13 | Llogarite | Accounts |
+| 14 | Transfero mes Llogarive | Transfer Between Accounts |
+| 15 | Transaksionet e Perseritura | Recurring Transactions |
+| 16 | Eksporto ne CSV | Export to CSV |
+| 17 | Rregullat e Kategorive | Category Rules |
+| 18 | Perdoruesit | Users |
+| 19 | Importo nga nje skedar | Import from a file |
+| 20 | Historiku i Ndryshimeve | Change History |
+| 21 | Dil nga programi | Exit |
 
 Dates use `dd-mm-yyyy`. When editing, each prompt shows the current value in brackets — press Enter to keep it.
 
@@ -77,6 +78,7 @@ Albanian flags are primary; English aliases work for all of them.
 | `--lista` | `--list` | List transactions (optionally filtered) |
 | `--gjendja` | `--balance` | Show the financial summary |
 | `--raporti` | `--report` | Monthly report |
+| `--grafiku` | `--chart` | Show charts; with 3, 6 or 12, the month-by-month one |
 | `--buxhetet` | `--budgets` | Show budgets |
 | `--cakto-buxhet` | `--set-budget` | Set a monthly budget: `KATEGORIA SHUMA` |
 | `--llogarite` | `--accounts` | Show per-account balances |
@@ -130,20 +132,6 @@ Foreign keys are enforced. Deleting an account or a category does not delete wha
 
 Two constraints are deliberately absent: there is no maximum amount, since any ceiling is arbitrary and would not catch a digit too many; and there is no check on an account's kind or a rule's frequency, since those lists are likely to grow while income and expense are not.
 
-### Categories and subcategories
-
-Both are stored records, managed from menu option 10 — view, add, rename, and delete, for categories and subcategories alike. A name typed for the first time while adding a transaction is still created automatically, so entry never stalls on defining things up front.
-
-Renaming is one row. Transactions reference a category by id, so the rename does not touch them. Deleting a category leaves its transactions uncategorised and takes its subcategories and any budget with it; the menu says how many transactions will be affected and asks before doing it.
-
-Suggestions are sorted in **Albanian alphabetical order**, following the full 36-letter alphabet including its nine digraphs:
-
-```
-a b c ç d dh e ë f g gj h i j k l ll m n nj o p q r rr s sh t th u v x xh y z zh
-```
-
-Each digraph is a letter in its own right, so every word beginning with S comes before every word beginning with Sh — `Sende`, `Sy`, then `Shendetesi`. Sorting by Unicode code point, which is what most languages do by default, interleaves them and pushes every accented word past Z.
-
 ### Users
 
 One database can hold several people's finances, kept entirely separate. Every account, category, transaction, budget and rule belongs to exactly one person, and no query crosses between them.
@@ -157,6 +145,28 @@ Two people can both have an account called `Banka` and a category called `Ushqim
 They are hashed with PBKDF2-HMAC-SHA256, a random salt per password, and the iteration count stored alongside so it can be raised later without invalidating existing passwords. Argon2 would be the better algorithm and is what this would use in production; it needs a third-party package, and this project has had no runtime dependency since version 1.
 
 Deleting a user deletes everything they own. There is no softer option: the data means nothing without them, and leaving it orphaned would be worse.
+
+### Accounts
+
+Accounts are optional and off until you create one. With none defined the program behaves as it always has: no account prompt, no account column, one combined balance.
+
+An account carries an **opening balance**, because an account that already held €500 when you started tracking does not have a balance of zero. Card accounts can open negative.
+
+Money moved between your own accounts is a **transfer**, not an expense. Recording an ATM withdrawal as spending would make your combined total drop by money you still have. A transfer is a transaction type of its own, shown in cyan, and counted as neither income nor spending.
+
+### Categories and subcategories
+
+Both are stored records, managed from menu option 10 — view, add, rename, and delete, for categories and subcategories alike. A name typed for the first time while adding a transaction is still created automatically, so entry never stalls on defining things up front.
+
+Renaming is one row. Transactions reference a category by id, so the rename does not touch them. Deleting a category leaves its transactions uncategorised and takes its subcategories and any budget with it; the menu says how many transactions will be affected and asks before doing it.
+
+Suggestions are sorted in **Albanian alphabetical order**, following the full 36-letter alphabet including its nine digraphs:
+
+```
+a b c ç d dh e ë f g gj h i j k l ll m n nj o p q r rr s sh t th u v x xh y z zh
+```
+
+Each digraph is a letter in its own right, so every word beginning with S comes before every word beginning with Sh — `Sende`, `Sy`, then `Shendetesi`. Sorting by Unicode code point, which is what most languages do by default, interleaves them and pushes every accented word past Z.
 
 ### Category rules
 
@@ -181,6 +191,28 @@ When adding a transaction by hand, a matching rule is shown as a suggestion but 
 Before a rule is saved, the program says how many existing transactions it would match. A pattern matching three hundred rows is worth knowing about beforehand.
 
 Deleting a category deletes its rules with it, since a rule pointing at nothing would stop working without saying so.
+
+### Input rules
+
+Input is validated strictly, because a value that is quietly accepted and quietly wrong is worse than a rejection.
+
+**Amounts** are plain digits with an optional decimal point. Scientific notation, Python's underscore separators, and digits from other scripts are all rejected — `Decimal` accepts them, but nobody types them on purpose.
+
+**Dates** must be exactly `dd-mm-yyyy`, and must be real: 31 April, 29 February in a common year, month 13 and day 00 are all refused.
+
+**Yes and no** are exact lowercase, in the interface language only — `po`/`jo` in Albanian, `yes`/`no` in English. The input is compared exactly as typed, neither lowercased nor stripped, so `PO` and `" po "` are both refused.
+
+**Cancelling** a prompt takes a whole word in the interface language — `anulo` in Albanian, `cancel` in English — compared exactly as typed. Every prompt that offers it names the word.
+
+**Category and subcategory names** are letters with single spaces between words: `Ushqim`, `Te tjera`, `Paga baze`. No digits, no punctuation. Leading or trailing spaces, runs of spaces, and whitespace-only input are rejected rather than trimmed — a name the program quietly trimmed would not be the name you entered, and two names differing only by a space would look identical in a list. Pressing Enter still means "no category".
+
+### Recurring transactions
+
+Rules support `javore` (weekly), `mujore` (monthly), and `vjetore` (yearly). Due occurrences generate automatically at start-up, or on demand.
+
+Every occurrence is computed from the rule's start date rather than from the previous one, so a rule anchored on the 31st fires 31 January, 28 February, then **31** March. A short month never shifts the schedule permanently.
+
+The transactions and the rule updates commit in a single database transaction, so a crash part-way through leaves nothing behind and the next run produces no duplicates.
 
 ### Importing
 
@@ -208,6 +240,28 @@ Cash deposits are recognised and imported as transfers rather than income, with 
 
 Account and card numbers are stripped from descriptions on the way in, along with masking asterisks, times of day, and trailing date stamps. What is left is what identifies the purchase; the rest would otherwise be stored forever and copied out through every export.
 
+### CSV export
+
+`--eksporto SKEDARI` writes the selected transactions to a CSV file. Every listing filter applies.
+
+A bare filename goes to your Documents folder rather than the current directory; anything with a directory in it is left alone. The full path is printed after the export. Finding Documents is not simply `~/Documents` — Windows relocates it and OneDrive commonly redirects it, so the path comes from the shell's registry record; Linux localizes the name, so it comes from the XDG user-dirs configuration.
+
+The file is written as UTF-8 with a byte order mark, without which Excel mangles every `ë` and `ç`. Amounts are plain decimals with no currency symbol. Use `--ndares ";"` if your spreadsheet expects semicolons.
+
+Export is one-directional. Reading a file back in is a separate feature, described under [Importing](#importing).
+
+### Charts
+
+Bar charts drawn with block characters — no plotting library, and nothing to install. Menu option 10, or `--grafiku`.
+
+Spending and income by category for the current month, and every account balance. `--grafiku 3`, `--grafiku 6` or `--grafiku 12` draws income against spending month by month over that span.
+
+**Bars are scaled against the largest value in their own chart**, so the biggest always fills the width. Scaling against a fixed amount would leave most of the terminal empty whenever the largest expense is small, which is most months. The consequence is that bars compare within a chart and never between two — which is the right trade, since a chart is read on its own.
+
+In the month-by-month chart both series share one scale, so a month with more income than spending is visibly so rather than merely numerically so. A month with nothing in it is still drawn: a gap in the data is itself worth seeing.
+
+Beside each category bar is its share of the total, which is a different question from how long the bar is. A negative account balance keeps its sign — a card in debt is a real state, and hiding it would misreport it.
+
 ### Change history
 
 Every create, update and delete on a transaction, account, category, subcategory, recurring rule or budget is recorded: what changed, from what, to what, and when. Menu option 16 shows recent changes or the history of one transaction; `--historia` does the same from the command line, and `--historia 3` narrows it to the third transaction.
@@ -225,46 +279,6 @@ The log is append-only and never pruned. Nothing in the program writes to it dir
 Every row records when it was written and when it last changed. `--detaje` adds both to the listing; they are hidden otherwise, since two more columns on every row would crowd out the description.
 
 `updated_at` is maintained by the same trigger that records the change. A column DEFAULT fires only on INSERT, so without it the column would record the creation time forever and quietly claim a row had never changed.
-
-### Input rules
-
-Input is validated strictly, because a value that is quietly accepted and quietly wrong is worse than a rejection.
-
-**Amounts** are plain digits with an optional decimal point. Scientific notation, Python's underscore separators, and digits from other scripts are all rejected — `Decimal` accepts them, but nobody types them on purpose.
-
-**Dates** must be exactly `dd-mm-yyyy`, and must be real: 31 April, 29 February in a common year, month 13 and day 00 are all refused.
-
-**Yes and no** are exact lowercase, in the interface language only — `po`/`jo` in Albanian, `yes`/`no` in English. The input is compared exactly as typed, neither lowercased nor stripped, so `PO` and `" po "` are both refused.
-
-**Cancelling** a prompt takes a whole word in the interface language — `anulo` in Albanian, `cancel` in English — compared exactly as typed. Every prompt that offers it names the word.
-
-**Category and subcategory names** are letters with single spaces between words: `Ushqim`, `Te tjera`, `Paga baze`. No digits, no punctuation. Leading or trailing spaces, runs of spaces, and whitespace-only input are rejected rather than trimmed — a name the program quietly trimmed would not be the name you entered, and two names differing only by a space would look identical in a list. Pressing Enter still means "no category".
-
-### Accounts
-
-Accounts are optional and off until you create one. With none defined the program behaves as it always has: no account prompt, no account column, one combined balance.
-
-An account carries an **opening balance**, because an account that already held €500 when you started tracking does not have a balance of zero. Card accounts can open negative.
-
-Money moved between your own accounts is a **transfer**, not an expense. Recording an ATM withdrawal as spending would make your combined total drop by money you still have. A transfer is a transaction type of its own, shown in cyan, and counted as neither income nor spending.
-
-### Recurring transactions
-
-Rules support `javore` (weekly), `mujore` (monthly), and `vjetore` (yearly). Due occurrences generate automatically at start-up, or on demand.
-
-Every occurrence is computed from the rule's start date rather than from the previous one, so a rule anchored on the 31st fires 31 January, 28 February, then **31** March. A short month never shifts the schedule permanently.
-
-The transactions and the rule updates commit in a single database transaction, so a crash part-way through leaves nothing behind and the next run produces no duplicates.
-
-### CSV export
-
-`--eksporto SKEDARI` writes the selected transactions to a CSV file. Every listing filter applies.
-
-A bare filename goes to your Documents folder rather than the current directory; anything with a directory in it is left alone. The full path is printed after the export. Finding Documents is not simply `~/Documents` — Windows relocates it and OneDrive commonly redirects it, so the path comes from the shell's registry record; Linux localizes the name, so it comes from the XDG user-dirs configuration.
-
-The file is written as UTF-8 with a byte order mark, without which Excel mangles every `ë` and `ç`. Amounts are plain decimals with no currency symbol. Use `--ndares ";"` if your spreadsheet expects semicolons.
-
-Export is one-directional. Reading a CSV is a separate feature, planned rather than present.
 
 ## Project layout
 
@@ -285,6 +299,10 @@ personal_finance/
     colors.py      ANSI handling and terminal detection
     display.py     Table and summary rendering
     export.py      CSV export
+    importing.py   Reading a file into candidates, with duplicate detection
+    statements.py  Bank statements, and checking them against their own totals
+    charts.py      Aggregation for the bar charts
+    passwords.py   Password hashing
     app.py         Service layer tying it together
     ui.py          Interactive prompts and menus
     cli.py         argparse entry point
@@ -327,7 +345,7 @@ To carry data across, export it from version 2.4.1 first:
 financat --eksporto transaksionet.csv
 ```
 
-Keep that file. Reading a CSV back in is a planned feature; until it arrives, the export is a record you can read and re-enter.
+Then import it into version 3 with `--importo`, which shows every row for review before writing any of it.
 
 ## License
 

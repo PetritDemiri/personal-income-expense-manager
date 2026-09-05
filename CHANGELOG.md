@@ -5,10 +5,55 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Seventeen versions are recorded below. Sixteen of them were released; 2.0.0 was a
+Eighteen versions are recorded below. Seventeen of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.8.0] — 2026-09-01
+
+### Added
+
+- Bar charts, drawn with block characters and no plotting library. Menu option
+  10 or `--grafiku`: spending and income by category for the current month,
+  every account balance, and income against spending month by month over three,
+  six or twelve months.
+
+### Changed
+
+- Bars are scaled against the largest value in their own chart, so the biggest
+  always fills the width. A fixed scale would leave most of a terminal empty
+  whenever the largest expense is small, which is most months. Bars therefore
+  compare within a chart and never between two.
+- Both series in the month-by-month chart share one scale, so a month with more
+  income than spending is visibly so rather than merely numerically so.
+- The minimum Python version is 3.9 rather than 3.8. 3.8 was claimed but never
+  tested — CI has run 3.9 and above throughout — and it reached end of life in
+  October 2024.
+
+### Documentation
+
+- The README's sections were ordered by when each was written rather than by
+  how anyone reads them. Reordered: where data lives, who owns it, how it is
+  organised, how it gets in, how it comes out, what is recorded about it.
+- Four modules added to the project layout that had never been listed there:
+  `importing.py`, `statements.py`, `charts.py` and `passwords.py`.
+- The demo tape draws the charts, is taller to fit them, and pauses for five
+  seconds on every screen rather than three.
+- Two passages still described reading a CSV as planned rather than present,
+  including the upgrade instructions, which told anyone coming from version 2
+  to re-enter their data by hand. `--importo` has done that since 3.4.0.
+
+### Notes
+
+- A month with nothing in it is still drawn on the monthly chart. A gap in the
+  data is itself worth seeing.
+- A negative account balance keeps its sign. A card in debt is a real state and
+  hiding it would misreport it.
+- Bars are drawn with a three-quarter block rather than a full one. A full
+  block fills the whole character cell, so stacked rows run together into a
+  solid mass - terminals have no line spacing to separate them.
+- 908 tests, up from 861.
 
 ## [3.7.0] — 2026-09-01
 
