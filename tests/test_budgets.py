@@ -142,3 +142,54 @@ class TestFindBudget:
         budgets = [budget(FOOD)]
         assert find_budget(budgets, FOOD) is not None
         assert find_budget(budgets, RENT) is None
+
+
+class TestTheTableLinesUp:
+    """Rows must not run past the rules above and below them.
+
+    The usage column's width was a hardcoded 16 while the bar and percentage
+    actually take 18, so every row overshot by two characters. It is measured
+    now rather than guessed at.
+    """
+
+    @pytest.fixture(autouse=True)
+    def plain(self):
+        from personal_finance import colors, i18n
+
+        i18n.set_language("sq")
+        colors.configure(force_off=True)
+        yield
+        i18n.set_language("sq")
+
+    def rendered(self, capsys, statuses):
+        from personal_finance.display import print_budgets
+
+        capsys.readouterr()
+        print_budgets(statuses, 2026, 8)
+        return [line for line in capsys.readouterr().out.split("\n") if line.strip()]
+
+    def test_every_row_matches_the_rule(self, capsys):
+        statuses = [
+            status_for(budget(FOOD, "200"), "Ushqim", [spend("185.40")], 2026, 8),
+            status_for(budget(RENT, "250"), "Qera", [spend("300", RENT)], 2026, 8),
+        ]
+        lines = self.rendered(capsys, statuses)
+        rules = {len(x) for x in lines if set(x.strip()) <= {"-"}}
+        rows = {len(x) for x in lines if x.startswith(("1", "2"))}
+        assert len(rules) == 1
+        assert rows == rules
+
+    def test_it_holds_when_a_budget_is_over(self, capsys):
+        """The widest case: a negative remainder and a three-digit percentage."""
+        statuses = [status_for(budget(FOOD, "10"), "Ushqim", [spend("999.99")], 2026, 8)]
+        lines = self.rendered(capsys, statuses)
+        rules = {len(x) for x in lines if set(x.strip()) <= {"-"}}
+        rows = {len(x) for x in lines if x.startswith("1")}
+        assert rows == rules
+
+    def test_it_holds_with_a_long_category_name(self, capsys):
+        statuses = [status_for(budget(FOOD, "200"), "Shpenzime shtepiake", [spend("50")], 2026, 8)]
+        lines = self.rendered(capsys, statuses)
+        rules = {len(x) for x in lines if set(x.strip()) <= {"-"}}
+        rows = {len(x) for x in lines if x.startswith("1")}
+        assert rows == rules

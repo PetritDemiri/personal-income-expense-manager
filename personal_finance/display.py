@@ -267,6 +267,14 @@ def budget_state_color(state):
     return GREEN
 
 
+def usage_bar(fraction, width=10):
+    """A small text bar showing how much of a budget is used."""
+    if fraction < 0:
+        fraction = Decimal("0")
+    filled = int(min(Decimal("1"), fraction) * width)
+    return "[" + "#" * filled + "." * (width - filled) + "]"
+
+
 def print_budgets(statuses, year, month):
     """Print every budget with the amount spent, remaining, and a usage bar."""
     heading = f"{t('budgets_title')} ({format_month(year, month)})"
@@ -284,7 +292,11 @@ def print_budgets(statuses, year, month):
     w_limit = max([len(t("budget_limit"))] + [len(v) for v in limit_strs.values()])
     w_left = max([len(t("budget_left"))] + [len(v) for v in left_strs.values()])
 
-    total = 4 + w_cat + 2 + w_spent + 2 + w_limit + 2 + w_left + 2 + 16
+    # Measured rather than guessed: two spaces, the bar, a space, and the
+    # percentage right-aligned in five. A hardcoded figure here was two
+    # short, so every row ran past the rules above and below it.
+    w_usage = 2 + len(usage_bar(Decimal("0"))) + 1 + 5
+    total = 4 + w_cat + 2 + w_spent + 2 + w_limit + 2 + w_left + w_usage
 
     print(paint(f"\n{heading}", BOLD, CYAN))
     print("-" * total)
@@ -308,14 +320,6 @@ def print_budgets(statuses, year, month):
         )
         print(paint(line, budget_state_color(status.state)))
     print("-" * total)
-
-
-def usage_bar(fraction, width=10):
-    """A small text bar showing how much of a budget is used."""
-    if fraction < 0:
-        fraction = Decimal("0")
-    filled = int(min(Decimal("1"), fraction) * width)
-    return "[" + "#" * filled + "." * (width - filled) + "]"
 
 
 def print_budget_warning(status):

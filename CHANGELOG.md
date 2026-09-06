@@ -5,10 +5,19 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Eighteen versions are recorded below. Seventeen of them were released; 2.0.0 was a
+Nineteen versions are recorded below. Eighteen of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.8.1] — 2026-09-01
+
+### Fixed
+
+- Rows in the budget table ran two characters past the rules above and below
+  them. The width of the usage column was a hardcoded 16 while the bar and
+  percentage take 18; it is measured now rather than guessed at. Every other
+  table was checked and lines up.
 
 ## [3.8.0] — 2026-09-01
 
