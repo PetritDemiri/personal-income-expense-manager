@@ -433,3 +433,90 @@ class TestTheSetupScreenIsSpacedOut:
         lines = capsys.readouterr().out.split("\n")
         position = next(i for i, line in enumerate(lines) if "Skadojne pas" in line)
         assert lines[position + 1] == ""
+
+
+class TestAnUnclaimedDatabaseCannotBeUsed:
+    """A database nobody has claimed belongs to nobody.
+
+    Until this was fixed, any flag on an empty database invented an
+    administrator with no password on it, and the generated-credentials flow
+    then never ran because users existed. One `--lista` claimed the database
+    silently, and whoever opened it afterwards walked straight in.
+    """
+
+    @pytest.fixture(autouse=True)
+    def plain(self):
+        from personal_finance import colors, i18n
+
+        i18n.set_language("sq")
+        colors.configure(force_off=True)
+        yield
+        i18n.set_language("sq")
+
+    @pytest.fixture
+    def unclaimed(self, tmp_path, monkeypatch):
+        """A database file with no users in it."""
+        from personal_finance.app import FinanceApp
+
+        monkeypatch.setenv("FINANCE_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("FINANCE_EXPORT_DIR", str(tmp_path))
+        app = FinanceApp(path=str(tmp_path / "finance.db"), quiet=True)
+        with app.db.connection as conn:
+            conn.execute("DELETE FROM users")
+        app.close()
+        return str(tmp_path / "finance.db")
+
+    def test_a_flag_is_refused(self, unclaimed, capsys):
+        from personal_finance.cli import main
+
+        assert main(["--baza", unclaimed, "--lista"]) == 1
+        assert "nuk ka asnje perdorues" in capsys.readouterr().out
+
+    def test_it_says_what_to_do(self, unclaimed, capsys):
+        from personal_finance.cli import main
+
+        main(["--baza", unclaimed, "--lista"])
+        assert "pa asnje opsion" in capsys.readouterr().out
+
+    def test_no_user_is_invented(self, unclaimed, capsys):
+        """The whole point: a flag must not quietly become the owner."""
+        import sqlite3
+
+        from personal_finance.cli import main
+
+        main(["--baza", unclaimed, "--lista"])
+        connection = sqlite3.connect(unclaimed)
+        assert connection.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+        connection.close()
+
+    def test_a_writing_flag_is_refused_too(self, unclaimed, capsys):
+        from personal_finance.cli import main
+
+        assert main(["--baza", unclaimed, "--shto-llogari", "Banka", "Banke", "0"]) == 1
+
+    def test_an_abandoned_setup_is_refused_as_well(self, tmp_path, monkeypatch, capsys):
+        """It leaves a user with no password, which is not a claim either."""
+        from personal_finance.app import FinanceApp
+        from personal_finance.cli import main
+
+        monkeypatch.setenv("FINANCE_EXPORT_DIR", str(tmp_path))
+        path = str(tmp_path / "finance.db")
+        app = FinanceApp(path=path, quiet=True)
+        with app.db.connection as conn:
+            conn.execute("DELETE FROM users")
+        app.create_admin()
+        app.close()
+
+        assert main(["--baza", path, "--lista"]) == 1
+
+    def test_a_claimed_database_works_normally(self, tmp_path, monkeypatch, capsys):
+        from personal_finance.app import FinanceApp
+        from personal_finance.cli import main
+
+        monkeypatch.setenv("FINANCE_EXPORT_DIR", str(tmp_path))
+        path = str(tmp_path / "finance.db")
+        FinanceApp(path=path, quiet=True).close()
+
+        capsys.readouterr()
+        assert main(["--baza", path, "--lista"]) == 0
+        assert "nuk ka asnje perdorues" not in capsys.readouterr().out

@@ -38,6 +38,19 @@ class FinanceApp:
     def has_users(self):
         return bool(self.db.users())
 
+    def session_user(self):
+        """The user a running session belongs to, or None.
+
+        A session means the person already said who they are and proved it, so
+        asking again inside the twelve hours would be asking twice. Signing
+        out ends it and returns them to the screen, which is how somebody else
+        takes a turn.
+        """
+        from . import auth
+
+        token = auth.read_token(self.db.path)
+        return auth.session_user(self.db, token)
+
     def sign_in_applies(self):
         """Whether this installation has a sign-in screen at all.
 
@@ -283,10 +296,19 @@ class FinanceApp:
         return (row["user_id"], row["name"]) if row else (None, None)
 
     def complete_setup(self, user_id, name, password, setup_file=None):
+        """Claim the generated account, and sign in as it.
+
+        A session is started here because the person has just proved who they
+        are twice over - they held the generated password and chose a new one.
+        Asking them to sign in again immediately would be asking them to prove
+        it a third time.
+        """
         from . import auth
 
         auth.complete_setup(self.db, user_id, name, password, setup_file)
         self.db.use_user(user_id)
+        auth.purge_expired(self.db)
+        auth.write_token(self.db.path, auth.start_session(self.db, user_id))
 
     @property
     def is_admin(self):

@@ -675,3 +675,83 @@ class TestTheSignInScreensAreSpacedOut:
         capsys.readouterr()
         run_menu(app)
         assert capsys.readouterr().out.startswith("\n")
+
+
+class TestASessionAnswersTheQuestionAlready:
+    """A running session means the person already said who they are.
+
+    Asking again inside the twelve hours would be asking twice. Signing out
+    ends the session and returns them to the screen, which is how somebody
+    else takes a turn.
+    """
+
+    @pytest.fixture(autouse=True)
+    def plain(self):
+        from personal_finance import colors, i18n
+
+        i18n.set_language("sq")
+        colors.configure(force_off=True)
+        yield
+        i18n.set_language("sq")
+
+    def test_no_session_means_nobody(self, app):
+        assert app.session_user() is None
+
+    def test_signing_in_answers_it(self, app):
+        app.set_password(app.user_id, "Fjalekalimi1")
+        app.sign_in("Fjalekalimi1")
+        assert app.session_user() == app.user_id
+
+    def test_signing_out_unanswers_it(self, app):
+        app.set_password(app.user_id, "Fjalekalimi1")
+        app.sign_in("Fjalekalimi1")
+        app.sign_out()
+        assert app.session_user() is None
+
+    def test_an_expired_session_does_not_count(self, app):
+        app.set_password(app.user_id, "Fjalekalimi1")
+        app.sign_in("Fjalekalimi1")
+        with app.db.connection as conn:
+            conn.execute("UPDATE sessions SET expires_at = '2020-01-01 00:00:00'")
+        assert app.session_user() is None
+
+
+class TestClaimingTheAccountSignsYouIn:
+    """Having held the generated password and chosen a new one is proof
+    enough; asking to sign in immediately afterwards asks a third time."""
+
+    @pytest.fixture(autouse=True)
+    def plain(self):
+        from personal_finance import colors, i18n
+
+        i18n.set_language("sq")
+        colors.configure(force_off=True)
+        yield
+        i18n.set_language("sq")
+
+    @pytest.fixture
+    def pending(self, tmp_path, monkeypatch):
+        from personal_finance.app import FinanceApp
+
+        monkeypatch.setenv("FINANCE_EXPORT_DIR", str(tmp_path))
+        app = FinanceApp(path=str(tmp_path / "finance.db"), quiet=True)
+        with app.db.connection as conn:
+            conn.execute("DELETE FROM users")
+        app.create_admin()
+        return app
+
+    def test_a_session_is_running_afterwards(self, pending):
+        user_id, _name = pending.pending_admin()
+        pending.complete_setup(user_id, "Petrit", "Fjalekalimi1")
+        assert pending.session_user() == user_id
+
+    def test_so_no_sign_in_is_needed(self, pending):
+        user_id, _name = pending.pending_admin()
+        pending.complete_setup(user_id, "Petrit", "Fjalekalimi1")
+        assert not pending.needs_login()
+
+    def test_and_signing_out_still_ends_it(self, pending):
+        user_id, _name = pending.pending_admin()
+        pending.complete_setup(user_id, "Petrit", "Fjalekalimi1")
+        pending.sign_out()
+        assert pending.session_user() is None

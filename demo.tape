@@ -30,26 +30,46 @@ Set TypingSpeed 45ms
 # --- Seed a scratch database, off camera ---
 
 Hide
-Type "export FINANCE_DATA_DIR=$(mktemp -d) && clear"
+# Two statements, not one: bash expands every word of a command before making
+# any of its assignments, so `export A=$(mktemp -d) B=$A` leaves B empty.
+Type "export FINANCE_DATA_DIR=$(mktemp -d)"
 Enter
 Sleep 500ms
+Type "export FINANCE_EXPORT_DIR=$FINANCE_DATA_DIR && clear"
+Enter
+Sleep 500ms
+
+# An empty database belongs to nobody until someone claims it, and the
+# first-run setup is interactive by nature: its generated password is read with
+# getpass, which opens /dev/tty and cannot be fed from a pipe. So the recording
+# claims a database directly instead, which is what the setup leaves behind
+# anyway - one ordinary user with no password on it. None of this is on camera.
+Type "python3 -c 'from personal_finance.app import FinanceApp; from personal_finance.config import DATABASE_FILE, data_path; FinanceApp(path=data_path(DATABASE_FILE)).close()'"
+Enter
+Sleep 3s
 
 Type "financat --shto-llogari 'Banka' Banke 850 > /dev/null"
 Enter
+Sleep 2s
 Type "financat --shto-llogari 'Kesh' Kesh 40 > /dev/null"
 Enter
+Sleep 2s
 
 Type "financat --shto-te-ardhura --pershkrimi 'Paga e korrikut' --shuma 1200 --data $(date +01-%m-%Y) --kategoria Paga --llogaria Banka > /dev/null"
 Enter
+Sleep 2s
 Type "financat --shto-shpenzime --pershkrimi 'Qera e banesës' --shuma 300 --data $(date +02-%m-%Y) --kategoria Qera --llogaria Banka > /dev/null"
 Enter
+Sleep 2s
 Type "financat --transfero Banka Kesh --shuma 200 --pershkrimi 'Terheqje ne ATM' --data $(date +05-%m-%Y) > /dev/null"
 Enter
+Sleep 2s
 Type "financat --shto-shpenzime --pershkrimi 'Ushqime nga dyqani' --shuma 185.40 --data $(date +10-%m-%Y) --kategoria Ushqim --nenkategoria Dyqan --llogaria Kesh > /dev/null"
 Enter
+Sleep 2s
 Type "financat --cakto-buxhet Ushqim 200 > /dev/null && clear"
 Enter
-Sleep 500ms
+Sleep 2s
 Show
 
 # --- The demo ---

@@ -323,6 +323,8 @@ MESSAGES = {
         "who_are_you": "Kush jeni?",
         "user_new": "Perdorues i ri",
         "ask_who": "Zgjidhni (1-{count}): ",
+        "setup_required": "Kjo baze te dhenash nuk ka asnje perdorues. "
+        "Hapni programin pa asnje opsion per ta konfiguruar.",
         "setup_title": "Konfigurimi i pare",
         "setup_intro": "Kjo baze te dhenash eshte bosh. U krijua nje administrator.",
         "setup_written": "Emri dhe fjalekalimi u shkruan ne: {path}",
@@ -760,6 +762,8 @@ MESSAGES = {
         "who_are_you": "Who are you?",
         "user_new": "New user",
         "ask_who": "Choose (1-{count}): ",
+        "setup_required": "This database has no users. Open the program with "
+        "no options to set it up.",
         "setup_title": "First-time setup",
         "setup_intro": "This database is empty. An administrator has been created.",
         "setup_written": "The name and password were written to: {path}",

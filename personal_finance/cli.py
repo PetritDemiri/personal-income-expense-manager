@@ -572,7 +572,13 @@ def run_sessions(app):
     from .ui import choose_user, sign_in_as
 
     while True:
-        if app.sign_in_applies():
+        # A running session is a question already answered. Skipped only on
+        # the way in: signing out ends the session, so the loop comes back to
+        # the screen and somebody else can take a turn.
+        running = app.session_user()
+        if running is not None:
+            app.use_user(running)
+        elif app.sign_in_applies():
             # Asked outright rather than guessed. Picking a user and then
             # demanding their password left a second person unable to reach
             # their own data at all.
@@ -784,10 +790,12 @@ def main(argv=None):
             path=args.baza or data_path(DATABASE_FILE),
             quiet=not interactive,
             user=args.perdoruesi,
-            # No user is invented for an empty database: the first run hands
-            # out generated administrator credentials instead, so nobody ends
-            # up owning the data by accident.
-            auto_user=not interactive,
+            # No user is invented for an empty database, whichever way the
+            # program was started. Inventing one for a flagged run let a single
+            # `--lista` claim an empty database silently, with no password on
+            # it, and the generated-credentials flow then never ran because
+            # users existed.
+            auto_user=False,
         )
     except UnknownUser as error:
         print(paint(t("unknown_user", name=error.args[0]), RED))
@@ -799,6 +807,14 @@ def main(argv=None):
         generated = app.process_recurring()
         if generated and interactive:
             print(paint(t("generated", count=len(generated)), BOLD))
+
+    # A database nobody has claimed cannot be worked in. The setup is
+    # interactive by nature - a generated password has to be read from a file
+    # and typed back - so a flagged run says what to do rather than inventing
+    # an owner or prompting where nobody may be watching.
+    if not interactive and (not app.has_users or app.setup_pending):
+        print(paint(t("setup_required"), YELLOW))
+        return 1
 
     try:
         if interactive:

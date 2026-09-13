@@ -14,6 +14,8 @@ from personal_finance import colors, i18n
 from personal_finance.cli import ACTION_FLAGS, action_flag_dests, build_parser, main
 from personal_finance.schema import EXPENSE
 
+from .conftest import claim_database
+
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
@@ -22,6 +24,8 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("NO_COLOR", "1")
     i18n.set_language("sq")
     colors.configure(force_off=True)
+    # The command line refuses to work in a database nobody has claimed.
+    claim_database(tmp_path)
     yield tmp_path
     i18n.set_language("sq")
 

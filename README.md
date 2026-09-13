@@ -152,6 +152,8 @@ Deleting a user deletes everything they own. There is no softer option: the data
 
 A user with no password is never asked for one, so a single-person installation is unchanged. Set one and the program asks on the first command, then issues a **session lasting twelve hours** — so a script running inside that window is never prompted. `--hyr` signs in explicitly and `--dil` signs out.
 
+A running session skips the sign-in screen — it means you already said who you are, so being asked again inside the twelve hours would be asking twice. Claiming the generated administrator signs you in for the same reason.
+
 **The program loops between the sign-in screen and the menu.** Signing out is the last entry on the main menu and returns you to the screen rather than ending the program, so somebody else can sign in without restarting it. Leaving is offered at the screen, which is the one place where nobody's data is on show — two decisions rather than one.
 
 Where there is a single user with no password there is no screen to return to, so that same entry simply leaves, and says so.
@@ -185,6 +187,12 @@ Changing or resetting a password ends every session that user had, since a login
 An administrator can also reset someone else's forgotten password, for the case where a person is locked out and cannot work the self-service flow. **Changes to user accounts are recorded in the change history** — a rename, the role being granted or removed, and the moment a password changed. The password hash itself is never recorded: an append-only log outlives the password it would hold. So an administrator resetting an account cannot be prevented, but neither can it be hidden — the account's owner sees that it happened and when.
 
 The log records whose account changed, not who changed it. SQLite triggers cannot see which user the program is acting as; the web version, which has a request behind every change, will be able to record that.
+
+### An unclaimed database
+
+A database with nobody in it belongs to nobody. Running the program with no options starts the first-time setup; running it **with** a flag refuses, and says to open it with no options instead.
+
+That matters because the alternative is worse than it sounds: a flag that quietly created an owner would mean one `--lista` claimed an empty database with no password on it, and the generated credentials would never be handed out, because by then users existed.
 
 ### Accounts
 

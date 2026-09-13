@@ -21,7 +21,7 @@ from personal_finance.export import (
 )
 from personal_finance.schema import EXPENSE, INCOME, TRANSFER
 
-from .conftest import make_view
+from .conftest import claim_database, make_view
 
 
 def entry(
@@ -242,6 +242,8 @@ class TestCliExport:
     def seeded(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("FINANCE_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("NO_COLOR", "1")
+        # The command line refuses to work in a database nobody has claimed.
+        claim_database(tmp_path)
         main(["--shto-llogari", "Banka", "Banke", "500"])
         main(["--shto-llogari", "Kesh", "Kesh", "40"])
         for description, amount, date, category, account in [

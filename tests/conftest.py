@@ -18,6 +18,24 @@ def db(tmp_path):
     database.close()
 
 
+def claim_database(directory):
+    """Create a database with one ordinary user, as a claimed one looks.
+
+    The command line refuses to work in a database nobody has claimed, so a
+    test that drives it through flags has to start from one that somebody
+    has. The generated-administrator flow is interactive by nature and is
+    tested on its own; this is the state it leaves behind.
+    """
+    import os
+
+    from personal_finance.app import FinanceApp
+
+    path = os.path.join(str(directory), "finance.db")
+    app = FinanceApp(path=path, quiet=True)
+    app.close()
+    return path
+
+
 @pytest.fixture
 def app(db):
     """A FinanceApp over an empty database."""

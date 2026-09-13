@@ -5,10 +5,37 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Twenty versions are recorded below. Nineteen of them were released; 2.0.0 was a
+Twenty-one versions are recorded below. Twenty of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.9.1] — 2026-09-13
+
+Two things found while recording the first run, neither of which any test
+would have shown: they only appear when the flow is walked as a person.
+
+### Fixed
+
+- Claiming the generated administrator did not sign you in. Having held the
+  generated password and chosen a new one, the program asked "who are you?"
+  immediately afterwards — a third proof of something already shown twice.
+- A running session did not skip the sign-in screen. It saved the password but
+  still asked who you were, which is half a session. Signing out still ends it
+  and returns to the screen, which is how somebody else takes a turn.
+
+### Documentation
+
+- `demo-setup.tape`, a recording of the first run: the credentials file, the
+  boxes filling as the code is typed, and the account being claimed. A
+  recording types fixed keystrokes and the generated password is different
+  every time, so `demo_setup.py` arranges a known one first. Nothing about how
+  the program behaves changes — it checks the password, counts the three
+  attempts and expires the code exactly as it always does.
+
+### Notes
+
+- 1148 tests, up from 1141.
 
 ## [3.9.0] — 2026-09-02
 
@@ -149,6 +176,13 @@ against the command line first.
   and an unreadable one says so.
 - Description, amount and date could not be cancelled at all, so a task begun
   by mistake had to be completed.
+- Any flag on an empty database invented an administrator with no password on
+  it, and the generated-credentials flow then never ran because users existed.
+  A single `--lista` claimed a database silently, and whoever opened it
+  afterwards walked straight in. A database nobody has claimed is now refused,
+  with a line saying to open the program with no options to set it up — the
+  setup is interactive by nature, since a generated password has to be read
+  from a file and typed back.
 - A first-time setup that was begun and abandoned left a user with no password
   on it, which the ordinary path read as a single-user installation that never
   wanted one — and let the next person straight in. A pending setup now counts
@@ -176,7 +210,7 @@ against the command line first.
   rebuild nothing. Everyone who already existed becomes an administrator: they had
   every power a program without roles offered, and taking it away on upgrade
   would lock people out of their own accounts.
-- 1135 tests, up from 911.
+- 1141 tests, up from 911.
 
 ## [3.8.1] — 2026-09-01
 
