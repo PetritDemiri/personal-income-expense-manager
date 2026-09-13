@@ -8,6 +8,10 @@ A command-line personal income and expense manager, with an Albanian interface a
 
 ![Demo](demo.gif)
 
+The first run, where an empty database hands out the credentials for its administrator rather than letting whoever opens it own the data:
+
+![First run](demo-setup.gif)
+
 ## Features
 
 - **Transactions** — add, edit in place, and delete income and expense entries
@@ -424,13 +428,16 @@ ruff check . && ruff format --check .               # lint and format
 
 Tests and lint run on every push via GitHub Actions, across Linux, macOS, and Windows.
 
-### Recording the demo GIF
+### Recording the demo GIFs
 
 ```bash
-vhs demo.tape    # requires https://github.com/charmbracelet/vhs
+vhs demo.tape          # requires https://github.com/charmbracelet/vhs
+vhs demo-setup.tape
 ```
 
-The tape runs against a temporary data directory, so your real data never appears in the recording.
+Both run against a temporary data directory, so real data never appears in a recording. Run them from the project folder: the second imports `demo_setup.py`.
+
+`demo-setup.tape` records the first run. A recording types fixed keystrokes and the generated password is different every time, so `demo_setup.py` arranges a known one before the recording starts. Nothing about how the program behaves changes — it checks the password, counts the three attempts and expires the code exactly as it always does. The two password fields near the end show nothing as they are typed, which is what setting a password looks like anywhere.
 
 ## Upgrading from version 2
 
