@@ -64,7 +64,7 @@ Running with no flags opens the interactive menu:
 | 18 | Perdoruesit | Users |
 | 19 | Importo nga nje skedar | Import from a file |
 | 20 | Historiku i Ndryshimeve | Change History |
-| 21 | Dil nga programi | Exit |
+| 21 | Mbyll sesionin | Sign out |
 
 Dates use `dd-mm-yyyy`. When editing, each prompt shows the current value in brackets — press Enter to keep it.
 
@@ -103,6 +103,8 @@ Albanian flags are primary; English aliases work for all of them.
 | `--deri` | `--to` | Filter end date (inclusive) |
 | `--muaji` | `--month` | Month for the report (`mm-yyyy`) |
 | `--perdoruesi` | `--user` | Which user to work as; defaults to the first |
+| `--hyr` | `--login` | Sign in and start a session |
+| `--dil` | `--logout` | Sign out |
 | `--baza` | `--database` | Path to the database file |
 | `--gjuha` | `--language` | Interface language: `sq` (default) or `en` |
 | `--ndares` | `--delimiter` | Column delimiter for export (default `,`) |
@@ -145,6 +147,44 @@ Two people can both have an account called `Banka` and a category called `Ushqim
 They are hashed with PBKDF2-HMAC-SHA256, a random salt per password, and the iteration count stored alongside so it can be raised later without invalidating existing passwords. Argon2 would be the better algorithm and is what this would use in production; it needs a third-party package, and this project has had no runtime dependency since version 1.
 
 Deleting a user deletes everything they own. There is no softer option: the data means nothing without them, and leaving it orphaned would be worse.
+
+### Signing in
+
+A user with no password is never asked for one, so a single-person installation is unchanged. Set one and the program asks on the first command, then issues a **session lasting twelve hours** — so a script running inside that window is never prompted. `--hyr` signs in explicitly and `--dil` signs out.
+
+**The program loops between the sign-in screen and the menu.** Signing out is the last entry on the main menu and returns you to the screen rather than ending the program, so somebody else can sign in without restarting it. Leaving is offered at the screen, which is the one place where nobody's data is on show — two decisions rather than one.
+
+Where there is a single user with no password there is no screen to return to, so that same entry simply leaves, and says so.
+
+A new password must be at least 8 characters with at least one capital letter and one digit. The rule applies when a password is set or changed, never retroactively, so an upgrade cannot lock anyone out of their own data.
+
+Session tokens are stored hashed, so the database never holds one that could be presented as a login, and the token file is owner-only where the platform supports it.
+
+**What this protects against, stated plainly.** On a shared machine it keeps one person from casually reading another's finances. It is *not* protection against someone holding `finance.db`, who can open it in any SQLite browser regardless — the file's own permissions are that boundary, and full-disk encryption such as BitLocker or FileVault is what covers a stolen machine. The database is not encrypted.
+
+#### Changing and resetting
+
+Changing your own password requires the current one; without that check anyone at the keyboard could take over an account they are already looking at.
+
+A forgotten password is reset with a one-time code, written to a text file in your Documents folder. The code expires in **five minutes**, allows **three attempts**, and works once — a fourth wrong attempt cancels the reset entirely, and requesting a new code invalidates the old.
+
+The code is typed into boxes that fill as you go, the way a verification code is entered on a phone:
+
+```
+Kodi:  [X][C][Q] [2][E][S] [B][3][Z]
+```
+
+Nine characters, no separator to type — the grouping is there to be read. It submits itself once the last box is filled; backspace corrects, Escape cancels. Where there is no terminal to draw into — a script, or a piped command — it falls back to reading a line, and the same code is accepted.
+
+Codes are drawn from an alphabet without `O`, `0`, `I`, `1` or `L`, since they are read off a screen and typed by hand, and they are **case-sensitive**.
+
+Anyone who can run the program can also read that file, so on one machine this is a deliberate, time-limited, recorded procedure rather than a barrier. The expiry and the attempt limit are what make it correct once the code is delivered somewhere else, which is what the web interface will do.
+
+Changing or resetting a password ends every session that user had, since a login granted under the old one should not survive it.
+
+An administrator can also reset someone else's forgotten password, for the case where a person is locked out and cannot work the self-service flow. **Changes to user accounts are recorded in the change history** — a rename, the role being granted or removed, and the moment a password changed. The password hash itself is never recorded: an append-only log outlives the password it would hold. So an administrator resetting an account cannot be prevented, but neither can it be hidden — the account's owner sees that it happened and when.
+
+The log records whose account changed, not who changed it. SQLite triggers cannot see which user the program is acting as; the web version, which has a request behind every change, will be able to record that.
 
 ### Accounts
 
@@ -192,6 +232,23 @@ Before a rule is saved, the program says how many existing transactions it would
 
 Deleting a category deletes its rules with it, since a rule pointing at nothing would stop working without saying so.
 
+### Asking questions
+
+Adding or editing a transaction asks one question at a time. **Cancelling at any question steps back to the one before**, keeping the answers already given; cancelling at the first abandons the task. A task six questions long should not throw away five correct answers to fix the sixth.
+
+Every prompt states what it accepts — typing your own value, pressing Enter to skip, or cancelling — so nothing has to be remembered from one stage to the next. Cancelling is stated once when a task starts.
+
+Rows are chosen the same way wherever they are chosen — one number, a list, a range, or any mixture:
+
+```
+5            one row
+1, 2, 3      several
+5-13         a range
+1, 3, 5-9    mixed
+```
+
+A range written backwards is read forwards. Several transactions can be deleted at once this way, and the same notation selects rows in the import preview. The positions are resolved to rows before anything is removed: deleting one at a time would shift every row below the first deletion up, and the second number would then name a different transaction than the one on screen. One number that does not exist refuses the whole entry, since a typo in a list of rows to delete should stop the deletion rather than quietly remove a different set. The table of what was deleted keeps the numbers that were on screen — renumbering from one would leave you unable to tell which rows had gone.
+
 ### Input rules
 
 Input is validated strictly, because a value that is quietly accepted and quietly wrong is worse than a rejection.
@@ -220,6 +277,8 @@ The transactions and the rule updates commit in a single database transaction, s
 
 The file's columns are matched against known header names in both languages; anything unrecognised is asked about rather than guessed at. The account is asked once at the start, since a statement comes from one account.
 
+A type column is used when the file has one — `Lloji` or `Type`, reading `Te Ardhura`, `Shpenzime` and their English equivalents. That matters most for the program's own export, which writes every amount positive with the type beside it: reading only the sign would turn every expense back into income.
+
 Number and date formats are worked out from the whole column rather than from one value: `1.234` alone cannot say whether the separator is a decimal point or a thousands mark, while a column also containing `12,50` settles it. The same goes for dates — one `01/02/2026` cannot say which half is the month, but a column containing `15/02/2026` can.
 
 **Nothing is written until you approve it.** The preview shows every parsed row with the amount and date *as the program read them*, not as the file wrote them, because a misread decimal separator and a swapped day and month are silent errors and seeing `€1.23` where `€1,234.56` was meant is how they get caught. From the preview you can deselect rows, set a category on any of them, and then import.
@@ -227,6 +286,20 @@ Number and date formats are worked out from the whole column rather than from on
 Rows that already exist are flagged as duplicates and deselected — shown rather than skipped, so re-importing an overlapping range is visible instead of quietly doubling your spending. Rows with an unreadable date or amount are flagged too, and cannot be selected.
 
 The import runs as one database transaction. A partial import cannot be told apart from a complete one, and re-running it would double whatever landed.
+
+### Finding a file to import
+
+A file is searched for by name in the current folder, then **Downloads, Documents and Desktop** — named as they are on the machine rather than translated, since telling someone to use "Dokumente" sends them looking for a folder Windows calls "Documents". Downloads comes first because that is where a bank statement arrives. A full path is always used as given.
+
+The extension need not be typed: a bare name matches every file of that name, so nobody has to remember whether the bank sent HTML or CSV. Where several match, each is offered with its format and the folder it came from:
+
+```
+U gjeten disa skedare me kete emer:
+  1. for-database.csv  (ne Downloads)
+  2. for-database.htm  (ne Downloads)
+```
+
+When a file cannot be read, the reason is given in words — the file was not found and here is where it was looked for, or it cannot be read, or it is a folder. The operating system's own message is an errno in English whatever language was chosen, and tells nobody anything they can act on.
 
 ### Bank statements
 
@@ -316,7 +389,9 @@ personal_finance/
     importing.py   Reading a file into candidates, with duplicate detection
     statements.py  Bank statements, and checking them against their own totals
     charts.py      Aggregation for the bar charts
-    passwords.py   Password hashing
+    passwords.py   Password hashing and one-time codes
+    auth.py        Signing in, sessions, and password resets
+    codeentry.py   Typing a one-time code into boxes
     app.py         Service layer tying it together
     ui.py          Interactive prompts and menus
     cli.py         argparse entry point

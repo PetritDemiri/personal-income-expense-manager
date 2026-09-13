@@ -35,6 +35,7 @@ DELIMITERS = (",", ";", "\t", "|")
 # start of the header. Albanian first, then English.
 COLUMN_HINTS = {
     "date": ("data", "date", "dt"),
+    "kind": ("lloji", "type", "kind"),
     "description": ("pershkrimi", "përshkrimi", "shpjegimi", "description", "narrative", "detaje"),
     "amount": ("shuma", "amount", "vlera", "value"),
     "debit": ("debi", "debit", "dalje", "out"),
@@ -44,6 +45,27 @@ COLUMN_HINTS = {
     "account": ("llogaria", "account"),
     "reference": ("nr.trx", "nrtrx", "reference", "ref", "id"),
 }
+
+# What a type column may say. The program's own export writes the label shown
+# on screen, so reading one back has to recognise both languages - and a file
+# from anywhere else may well use a word of its own.
+KIND_WORDS = {
+    INCOME: ("te ardhura", "të ardhura", "income", "credit", "in", "hyrje"),
+    EXPENSE: ("shpenzime", "expense", "debit", "out", "dalje"),
+    TRANSFER: ("transferim", "transfer"),
+}
+
+
+def parse_kind(text):
+    """The transaction type a cell names, or None if it names none."""
+    cleaned = " ".join((text or "").split()).casefold()
+    if not cleaned:
+        return None
+    for kind, words in KIND_WORDS.items():
+        if cleaned in words:
+            return kind
+    return None
+
 
 DATE_FORMATS = (
     ("%d-%m-%Y", "dd-mm-yyyy"),
@@ -350,9 +372,16 @@ def build_candidates(header, rows, mapping, account_id=None, deposit_is_transfer
                 candidate.selected = False
         else:
             candidate.amount = abs(amount)
-            candidate.kind = INCOME if amount > 0 else EXPENSE
-            if deposit_is_transfer and amount > 0 and is_deposit(candidate.description):
-                candidate.kind = TRANSFER
+            # A type column is better evidence than the sign of the amount.
+            # The program's own export writes every amount positive with the
+            # type beside it, so reading the sign alone made every row income.
+            stated = parse_kind(column(row, "kind")) if "kind" in mapping else None
+            if stated is not None:
+                candidate.kind = stated
+            else:
+                candidate.kind = INCOME if amount > 0 else EXPENSE
+                if deposit_is_transfer and amount > 0 and is_deposit(candidate.description):
+                    candidate.kind = TRANSFER
 
         candidates.append(candidate)
 

@@ -491,6 +491,8 @@ _FIELD_LABELS = {
     "generated_upto": "field_generated",
     "limit_cents": "field_limit",
     "pattern": "field_pattern",
+    "is_admin": "field_is_admin",
+    "password_set_at": "field_password_set_at",
 }
 
 # Columns holding money, so the log shows euros rather than raw cents.
@@ -609,6 +611,7 @@ def print_candidates(candidates, decimal_separator=None, date_label=None):
 
     total = 2 + w_num + w_date + w_type + w_desc + w_cat + w_amount + w_status + 7
 
+    print()
     if decimal_separator or date_label:
         detected = []
         if date_label:
@@ -648,6 +651,7 @@ def print_candidates(candidates, decimal_separator=None, date_label=None):
             print(paint(line, DIM))
 
     print("-" * total)
+    print()
     chosen = sum(1 for c in candidates if c.will_import)
     print(paint(t("import_selected", count=chosen, total=len(candidates)), BOLD))
 

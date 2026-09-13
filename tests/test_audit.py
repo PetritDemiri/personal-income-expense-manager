@@ -218,12 +218,24 @@ class TestQuerying:
         assert len(db.audit_entries(limit=4)) == 4
 
     def test_count(self, db):
+        """Cleared first: creating the first user is itself a recorded change."""
+        with db.connection as conn:
+            conn.execute("DELETE FROM audit_log")
         db.add_transaction(Transaction(EXPENSE, "A", Decimal("1"), "01-08-2026"))
         assert db.audit_count() == 1
 
     def test_an_empty_log(self, db):
+        with db.connection as conn:
+            conn.execute("DELETE FROM audit_log")
         assert db.audit_entries() == []
         assert db.audit_count() == 0
+
+    def test_creating_a_user_is_itself_recorded(self, db):
+        """Renaming, granting the role and changing a password all reach
+        across people, so they belong in the history."""
+        entries = db.audit_entries(entity="users")
+        assert entries
+        assert entries[-1].action == "create"
 
 
 class TestMigrationFromVersionFour:
@@ -237,6 +249,10 @@ class TestMigrationFromVersionFour:
         connection = sqlite3.connect(path)
         connection.executescript(schema_before_users())
         for table in AUDITED_TABLES:
+            # Neither table existed at version 4: users arrives in migration 7
+            # and category rules in migration 6.
+            if table in ("users", "category_rules"):
+                continue
             connection.executescript(f"""
 CREATE TRIGGER touch_{table} AFTER UPDATE ON {table} FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at

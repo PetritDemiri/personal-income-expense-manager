@@ -13,7 +13,7 @@ from . import colors
 from .accounts import balances_for, count_unassigned, find_account
 from .app import FinanceApp
 from .budgets import all_statuses
-from .colors import BOLD, RED, YELLOW, paint, type_color
+from .colors import BOLD, CYAN, RED, YELLOW, paint, type_color
 from .config import DATABASE_FILE, data_path
 from .database import UnknownUser
 from .dates import current_date_str, format_date, month_of, parse_date, parse_month, today
@@ -56,6 +56,8 @@ ACTION_FLAGS = (
     "historia",
     "importo",
     "grafiku",
+    "hyr",
+    "dil",
 )
 
 
@@ -186,6 +188,20 @@ def build_parser():
         metavar="NUMRI",
         help="Shfaq historikun e ndryshimeve; me nje numer, vetem ate "
         "transaksion / show the change history",
+    )
+    actions.add_argument(
+        "--hyr",
+        "--login",
+        action="store_true",
+        dest="hyr",
+        help="Hyr dhe fillo nje sesion / sign in and start a session",
+    )
+    actions.add_argument(
+        "--dil",
+        "--logout",
+        action="store_true",
+        dest="dil",
+        help="Dil nga sesioni / sign out",
     )
     actions.add_argument(
         "--grafiku",
@@ -546,6 +562,33 @@ def do_history(app, args):
     )
 
 
+def run_sessions(app):
+    """Sign in, work, sign out, and offer to sign in again.
+
+    The program loops between the sign-in screen and the menu rather than
+    ending when someone signs out. Leaving is offered at the screen, which is
+    the one place where nobody's data is on show.
+    """
+    from .ui import choose_user, sign_in_as
+
+    while True:
+        if app.sign_in_applies():
+            # Asked outright rather than guessed. Picking a user and then
+            # demanding their password left a second person unable to reach
+            # their own data at all.
+            chosen = choose_user(app)
+            if chosen is None:
+                print()
+                print(paint(t("goodbye"), CYAN))
+                return
+            app.use_user(chosen)
+            if not sign_in_as(app, chosen):
+                return
+
+        if run_menu(app):
+            return
+
+
 def do_charts(app, args):
     """Draw the charts. A number of months draws only the monthly one."""
     from .charts import SPANS, account_bars, category_bars, monthly_bars
@@ -601,6 +644,19 @@ def do_report(app, args):
 def run_cli(app, args):
     """Run whatever the flags asked for. Returns True if anything ran."""
     did_something = False
+
+    if args.dil:
+        app.sign_out()
+        print(paint(t("logged_out"), BOLD))
+        did_something = True
+
+    if args.hyr:
+        # Explicit sign-in. Already handled below for every other command, so
+        # this only reports when there was nothing to do.
+        user = app.current_user()
+        if not user.has_password:
+            print(paint(t("no_password_set", name=user.name), YELLOW))
+        did_something = True
 
     if args.perserit:
         generated = app.process_recurring()
@@ -714,12 +770,24 @@ def main(argv=None):
     set_language(args.gjuha)
     colors.configure(force_off=args.pa_ngjyra)
 
-    interactive = not any(getattr(args, name, None) for name in ACTION_FLAGS)
+    # A flag counts as given when it is anything but absent. Two of them take
+    # an optional value and default to an empty string when written bare, and
+    # an empty string is falsy - so testing truthiness alone read `--grafiku`
+    # as if it had not been given at all.
+    def was_given(name):
+        value = getattr(args, name, None)
+        return value is not None and value is not False
+
+    interactive = not any(was_given(name) for name in ACTION_FLAGS)
     try:
         app = FinanceApp(
             path=args.baza or data_path(DATABASE_FILE),
             quiet=not interactive,
             user=args.perdoruesi,
+            # No user is invented for an empty database: the first run hands
+            # out generated administrator credentials instead, so nobody ends
+            # up owning the data by accident.
+            auto_user=not interactive,
         )
     except UnknownUser as error:
         print(paint(t("unknown_user", name=error.args[0]), RED))
@@ -733,8 +801,27 @@ def main(argv=None):
             print(paint(t("generated", count=len(generated)), BOLD))
 
     try:
+        if interactive:
+            from .ui import run_first_setup
+
+            # An empty database is claimed by whoever holds the generated
+            # credentials, not by whoever happens to run the program. A setup
+            # begun and abandoned counts as empty: it leaves a user with no
+            # password, which would otherwise look like an installation that
+            # never wanted one.
+            if not app.has_users or app.setup_pending:
+                if not run_first_setup(app):
+                    return 1
+            elif not app.sign_in_applies():
+                app.use_user(app.users()[0].id)
+        elif not args.dil and app.needs_login():
+            from .ui import sign_in
+
+            if not sign_in(app):
+                return 1
+
         if not run_cli(app, args):
-            run_menu(app)
+            run_sessions(app)
     except (KeyboardInterrupt, EOFError):
         print()
         print(t("goodbye"))

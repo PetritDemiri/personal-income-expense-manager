@@ -80,10 +80,18 @@ def schema_before_users():
 
 
 def audit_triggers_before_users():
-    """The audit triggers as they stood before they recorded a user."""
+    """The audit triggers as they stood before they recorded a user.
+
+    The users table is skipped: it did not exist before version 7, so a
+    trigger on it cannot be part of an older schema.
+    """
     from personal_finance.schema import AUDITED_TABLES, audit_triggers
 
-    script = "".join(audit_triggers(table, columns) for table, columns in AUDITED_TABLES.items())
+    script = "".join(
+        audit_triggers(table, columns)
+        for table, columns in AUDITED_TABLES.items()
+        if table != "users"
+    )
     return (
         script.replace(
             "INSERT INTO audit_log (user_id, entity, entity_id, action, before_json, after_json)",

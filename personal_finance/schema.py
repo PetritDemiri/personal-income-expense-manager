@@ -44,7 +44,9 @@ and the hand-edited CSV files that once made unvalidated values possible are
 gone.
 """
 
-SCHEMA_VERSION = 7
+import re
+
+SCHEMA_VERSION = 10
 
 # The single user a database gains when it is upgraded from before users
 # existed. Everything already stored becomes theirs.
@@ -68,6 +70,19 @@ CREATE TABLE users (
     password_hash  TEXT,
     password_salt  TEXT,
     password_iters INTEGER,
+    -- What someone may do beyond their own data: see the other users, add,
+    -- rename and remove them, and reset a password they do not know. An
+    -- ordinary user can do none of that, which is the whole point of the
+    -- distinction.
+    is_admin       INTEGER NOT NULL DEFAULT 0,
+    -- Set while the generated first-run credentials are still in force. The
+    -- account cannot be used for anything until its own name and password
+    -- replace them.
+    must_change    INTEGER NOT NULL DEFAULT 0,
+    -- When the password last changed. Audited in place of the hash itself, so
+    -- the history records that a password changed and when, while no hash -
+    -- current or superseded - is ever copied into the log.
+    password_set_at TEXT,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -178,6 +193,45 @@ CREATE TABLE category_rules (
     UNIQUE (user_id, pattern_key)
 );
 
+-- The credentials generated the first time an empty database is opened.
+-- Written to a file for the person at the keyboard to read, and hashed here,
+-- exactly as a password reset is. The database is empty at this point, so if
+-- these expire unused the next run generates fresh ones rather than locking
+-- anyone out of a file with nothing in it.
+CREATE TABLE admin_setup (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash  TEXT    NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    used       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT    NOT NULL
+);
+
+-- A logged-in session. The token is stored hashed, so the database never
+-- holds a usable one - anyone reading this table finds nothing they can
+-- present as a login.
+CREATE TABLE sessions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT    NOT NULL UNIQUE,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT    NOT NULL
+);
+
+-- A password reset in progress. Hashed for the same reason, with the attempts
+-- counted so a code cannot be guessed by repetition, and `used` so a correct
+-- code works exactly once.
+CREATE TABLE password_resets (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash  TEXT    NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    used       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT    NOT NULL
+);
+
 -- Append only. Nothing in the application updates or deletes a row here, and
 -- the row it describes may since have been deleted, so entity_id is recorded
 -- as a plain integer rather than as a foreign key.
@@ -204,6 +258,8 @@ CREATE INDEX idx_transactions_to_account ON transactions(to_account_id);
 CREATE INDEX idx_subcategories_category  ON subcategories(category_id);
 CREATE INDEX idx_audit_entity            ON audit_log(entity, entity_id);
 CREATE INDEX idx_rules_category           ON category_rules(category_id);
+CREATE INDEX idx_sessions_user            ON sessions(user_id);
+CREATE INDEX idx_resets_user              ON password_resets(user_id);
 """
 
 
@@ -239,7 +295,14 @@ AUDITED_TABLES = {
     ),
     "budgets": ("category_id", "limit_cents"),
     "category_rules": ("pattern", "category_id", "subcategory_id"),
+    # Deliberately not the hash, the salt or the iteration count. Recording
+    # those would copy a superseded password hash into an append-only log that
+    # outlives the change.
+    "users": ("name", "is_admin", "password_set_at"),
 }
+
+# Tables whose owning user is the row itself rather than a user_id column.
+SELF_OWNED = ("users",)
 
 # Tables carrying a user_id, so the audit trigger can record who changed what.
 USER_OWNED = tuple(AUDITED_TABLES)
@@ -257,6 +320,10 @@ def _json_of(alias, columns):
 def audit_triggers(table, columns):
     """The three triggers that record every change to one table.
 
+    A row's owner is normally its user_id. The users table has no such column
+    - a user is their own owner - so there the row's own id is recorded
+    instead.
+
     The update trigger also advances updated_at, rather than leaving that to a
     separate trigger. Two triggers on the same UPDATE means the second fires
     again on the first one's write - measured, that produced two audit entries
@@ -264,6 +331,7 @@ def audit_triggers(table, columns):
     is off, which is SQLite's default, so a single logical change records
     exactly one entry.
     """
+    owner = "id" if table in SELF_OWNED else "user_id"
     new_json = _json_of("NEW", columns)
     old_json = _json_of("OLD", columns)
     return f"""
@@ -271,14 +339,14 @@ CREATE TRIGGER IF NOT EXISTS audit_{table}_insert AFTER INSERT ON {table}
 FOR EACH ROW
 BEGIN
     INSERT INTO audit_log (user_id, entity, entity_id, action, before_json, after_json)
-    VALUES (NEW.user_id, '{table}', NEW.id, 'create', NULL, {new_json});
+    VALUES (NEW.{owner}, '{table}', NEW.id, 'create', NULL, {new_json});
 END;
 
 CREATE TRIGGER IF NOT EXISTS audit_{table}_update AFTER UPDATE ON {table}
 FOR EACH ROW
 BEGIN
     INSERT INTO audit_log (user_id, entity, entity_id, action, before_json, after_json)
-    VALUES (NEW.user_id, '{table}', NEW.id, 'update', {old_json}, {new_json});
+    VALUES (NEW.{owner}, '{table}', NEW.id, 'update', {old_json}, {new_json});
     UPDATE {table} SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
@@ -286,14 +354,37 @@ CREATE TRIGGER IF NOT EXISTS audit_{table}_delete AFTER DELETE ON {table}
 FOR EACH ROW
 BEGIN
     INSERT INTO audit_log (user_id, entity, entity_id, action, before_json, after_json)
-    VALUES (OLD.user_id, '{table}', OLD.id, 'delete', {old_json}, NULL);
+    VALUES (OLD.{owner}, '{table}', OLD.id, 'delete', {old_json}, NULL);
 END;
 """
 
 
-def all_audit_triggers():
-    """Every audit trigger, as one script."""
-    return "".join(audit_triggers(table, columns) for table, columns in AUDITED_TABLES.items())
+def all_audit_triggers(connection=None):
+    """Every audit trigger, as one script.
+
+    Given a connection, only tables that actually exist are included. The
+    table list always describes the current version, so a migration replaying
+    an older step would otherwise build a trigger on a table several versions
+    away and fail. Called without one, every trigger is produced - which is
+    what a fresh database wants.
+    """
+
+    def usable(table, columns):
+        """Whether this table exists with every column the trigger reads."""
+        if connection is None:
+            return True
+        found = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        if not found:
+            return False
+        # A column added in a later version means the trigger cannot be built
+        # yet, even though the table itself is already there.
+        return set(columns).issubset(found)
+
+    return "".join(
+        audit_triggers(table, columns)
+        for table, columns in AUDITED_TABLES.items()
+        if usable(table, columns)
+    )
 
 
 def _migration_4(connection):
@@ -310,7 +401,7 @@ def _migration_5(connection):
     """
     for table in AUDITED_TABLES:
         connection.execute(f"DROP TRIGGER IF EXISTS touch_{table}")
-    connection.executescript(all_audit_triggers())
+    connection.executescript(all_audit_triggers(connection))
 
 
 # Keyed by the version each step brings the database up to. A database created
@@ -420,12 +511,98 @@ def _migration_7(connection):
         connection.execute(f"DROP TABLE {table}")
         connection.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
 
-    connection.executescript(all_audit_triggers())
+    connection.executescript(all_audit_triggers(connection))
+
+    # Only indexes whose table exists yet. SCHEMA always describes the current
+    # version, so by the time a later migration adds a table this loop would
+    # otherwise try to index one that is still several steps away.
+    present = {
+        row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
     for statement in SCHEMA.split(";"):
-        if "CREATE INDEX" in statement:
-            connection.execute(
-                statement.strip().replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS")
-            )
+        if "CREATE INDEX" not in statement:
+            continue
+        match = re.search(r"\bON\s+(\w+)\s*\(", statement)
+        if match and match.group(1) not in present:
+            continue
+        connection.execute(statement.strip().replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS"))
+
+
+def _migration_8(connection):
+    """Add sessions and password resets.
+
+    Purely additive - two tables and two indexes, nothing rebuilt - so a
+    database in daily use upgrades in place. Neither table is audited: a
+    session is not the user's data, and recording every login would bury the
+    financial history under noise. What the audit log does record is a
+    password being changed or reset, which is the part worth keeping.
+    """
+    connection.executescript("""
+CREATE TABLE IF NOT EXISTS sessions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT    NOT NULL UNIQUE,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT    NOT NULL
+);
+CREATE TABLE IF NOT EXISTS password_resets (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash  TEXT    NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    used       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_resets_user   ON password_resets(user_id);
+""")
+
+
+def _migration_9(connection):
+    """Add roles, and the first-run administrator credentials.
+
+    Everyone who already exists becomes an administrator. They were the only
+    users of a program that had no roles, so they had every power the program
+    offered; taking it away on upgrade would lock people out of their own
+    accounts.
+    """
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(users)")}
+    if "is_admin" not in columns:
+        connection.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+        connection.execute("UPDATE users SET is_admin = 1")
+    if "must_change" not in columns:
+        connection.execute("ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0")
+
+    connection.executescript("""
+CREATE TABLE IF NOT EXISTS admin_setup (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash  TEXT    NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    used       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT    NOT NULL
+);
+""")
+
+
+def _migration_10(connection):
+    """Record changes to user accounts.
+
+    Renaming someone, granting or removing the role, and changing a password
+    are the actions that reach across people; until now none of them was
+    recorded. The password hash is deliberately not audited - only the moment
+    it changed - so a superseded hash is never copied into a log that outlives
+    it.
+    """
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(users)")}
+    if "password_set_at" not in columns:
+        connection.execute("ALTER TABLE users ADD COLUMN password_set_at TEXT")
+        connection.execute(
+            "UPDATE users SET password_set_at = created_at WHERE password_hash IS NOT NULL"
+        )
+    connection.executescript(audit_triggers("users", AUDITED_TABLES["users"]))
 
 
 MIGRATIONS = {
@@ -433,6 +610,9 @@ MIGRATIONS = {
     5: _migration_5,
     6: _migration_6,
     7: _migration_7,
+    8: _migration_8,
+    9: _migration_9,
+    10: _migration_10,
 }
 
 

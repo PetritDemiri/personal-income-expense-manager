@@ -279,7 +279,9 @@ class TestMigrationFromVersionFive:
         connection.executescript(script)
         legacy = audit_triggers_before_users()
         for table in AUDITED_TABLES:
-            if table == "category_rules":
+            # Neither existed at version 5: category_rules arrives in
+            # migration 6, users in migration 7.
+            if table in ("category_rules", "users"):
                 continue
             start = legacy.index(f"CREATE TRIGGER IF NOT EXISTS audit_{table}_insert")
             end = legacy.index(f"audit_{table}_delete")

@@ -499,7 +499,11 @@ class TestHistoryFlag:
         assert "Historiku i ndryshimeve" in output
         assert "Shtuar" in output
 
-    def test_an_empty_log_says_so(self, capsys):
+    def test_an_empty_log_says_so(self, capsys, app):
+        """Creating the first user is itself a recorded change, so the log is
+        cleared before asking what an empty one looks like."""
+        with app.db.connection as conn:
+            conn.execute("DELETE FROM audit_log")
         main(["--historia"])
         assert "asnje ndryshim" in capsys.readouterr().out
 

@@ -131,6 +131,8 @@ class User:
     password_hash: Optional[str] = None
     password_salt: Optional[str] = None
     password_iters: Optional[int] = None
+    is_admin: bool = False
+    must_change: bool = False
 
     @property
     def key(self):

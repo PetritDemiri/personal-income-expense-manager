@@ -5,10 +5,178 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Nineteen versions are recorded below. Eighteen of them were released; 2.0.0 was a
+Twenty versions are recorded below. Nineteen of them were released; 2.0.0 was a
 development phase whose work shipped as part of 2.1.0, and it is documented
 here because it is a distinct stage in the project's history. Commit hashes are
 given so each entry can be traced back to the code.
+
+## [3.9.0] — 2026-09-02
+
+Signing in, so the mechanism the web interface will need is built and proven
+against the command line first.
+
+### Added
+
+- A sign-in screen that asks who you are rather than assuming. Picking a user
+  and then demanding that user's password left a second person unable to reach
+  their own data at all — only to fail at guessing someone else's.
+- Administrators. Everything else in the program was already scoped to its
+  owner; managing other people is the one thing that reaches across them, so
+  it is the one thing with a role. An ordinary user sees only their own
+  password and the way out; adding, renaming, deleting, resetting another's
+  password and granting the role are an administrator's.
+- A generated administrator for an empty database, called `admin`, with the
+  password written to a file rather than the screen. It expires in five
+  minutes, allows three attempts, and the account cannot be used for anything
+  until the
+  generated password has been replaced. This is the shape a deployed web
+  version needs, where nobody is at a console when a database is first
+  created.
+- Changes to user accounts are recorded in the change history: a rename, the
+  role being granted or removed, and the moment a password changed. The hash
+  itself is never recorded — an append-only log outlives the password it would
+  hold — so an administrator resetting an account cannot be hidden from the
+  account's owner even though it cannot be prevented.
+- The program loops between the sign-in screen and the menu. Signing out is
+  the last entry on the main menu and returns to the screen rather than ending
+  the program, so somebody else can sign in without restarting it; leaving is
+  offered at the screen, which is the one place where nobody's data is on show.
+  Where a single user has no password there is no screen to return to, so the
+  same entry simply leaves and says so.
+- Registration from the sign-in screen. From inside the program you are
+  already signed in as somebody, and adding an account for a different person
+  is an administrator's job.
+- A password prompt for users who have set one, with a session lasting twelve
+  hours so the program stays scriptable. `--hyr` and `--dil` sign in and out.
+- Password requirements on new passwords: at least 8 characters, one capital
+  letter and one digit. Applied when a password is set or changed, never
+  retroactively — a rule introduced later must not lock anyone out of their own
+  data.
+- Changing a password, requiring the current one. Without that check anyone at
+  the keyboard could take over an account they are already looking at.
+- Resetting a forgotten password with a one-time code written to a file in the
+  Documents folder. It expires in five minutes, allows three attempts, and
+  works once; a fourth wrong attempt cancels the reset, and requesting a new
+  code invalidates the old.
+- A code is typed into boxes that fill as you go, the way a verification code
+  is entered on a phone. Nine characters with no separator to type; it submits
+  itself once the last box is filled, backspace corrects, and Escape cancels.
+  Where there is no terminal to draw into — a script, or a piped command — it
+  falls back to reading a line and accepts the same code.
+- Codes are drawn from an alphabet without `O`, `0`, `I`, `1` or `L`, since
+  they are read off a screen and typed by hand and a misread character costs
+  one of only three attempts. They are case-sensitive; the grouping shown in
+  the file is a display concern and is discarded if typed. The code must be
+  entered exactly as shown, dashes included.
+
+### Changed
+
+- A successful sign-in rehashes the password when the stored iteration count is
+  below the current one. `needs_rehash` was written in 3.7.0 and until now
+  nothing had ever called it, which is the argument for building the login
+  here rather than discovering it was wrong from a browser.
+- Changing or resetting a password ends every session that user had.
+- Adding or editing a transaction asks one question at a time and lets you
+  step back. Cancelling at any question returns to the one before rather than
+  throwing the lot away; cancelling at the first abandons the task. Six
+  questions in, losing five correct answers to fix the sixth is its own kind
+  of rudeness.
+- Every prompt now states what it accepts, in the same shape. They had
+  drifted: one mentioned typing your own value, another mentioned skipping, a
+  third said nothing, so the reader had to remember which stage allowed what.
+  Cancelling is stated once when a task starts rather than before every
+  question.
+- Rows are chosen the same way wherever they are chosen — one number, a list,
+  a range, and any mixture: `5`, `1, 2, 3`, `5-13`, `1, 3, 5-9`. A range
+  written backwards is read forwards. Used both for deleting transactions and
+  for selecting rows in the import preview, which previously took a single
+  number only.
+- Several rows selected together move together: if any is off they all go on,
+  otherwise they all go off. Flipping each one separately would leave a mixed
+  selection looking untouched.
+- The import preview lists its commands one per line with what each does,
+  grouped into choosing rows and everything else, rather than a single line
+  mixing two styles of explanation, with a blank line between the table, the
+  count, the commands and the prompt so a long screen can be read. The same
+  spacing on the delete screen, between the table, the guide, the question and
+  the result, and on the sign-in, sign-out and goodbye screens. What the user
+  typed stays attached to what it produced. The four ways of naming rows are
+  shown as four examples, since the syntax alone does not say which form is
+  which.
+- Several transactions can be deleted at once, written as `1, 2, 3`. Positions
+  are resolved to rows before anything is removed, since deleting one at a
+  time would shift every row below the first deletion up and the second number
+  would name a different transaction than the one on screen. One bad number
+  refuses the whole entry. Deleting several shows a table of what
+  went, keeping the numbers that were on screen rather than renumbering from
+  one — which would leave the reader unable to tell which rows had gone, the
+  only reason to print the table at all. Deleting one keeps the single line it
+  always had.
+- A file to import is searched for by name in the current folder, then
+  Downloads, Documents and Desktop, rather than being opened relative to
+  whichever folder the program happened to be started from. Downloads is tried
+  before the rest, since a bank statement arrives there and nowhere else. The
+  prompt says where to put the file.
+- The extension need not be typed. A bare name matches every file of that
+  name, so nobody has to remember whether the bank sent HTML or CSV; where
+  more than one matches, each is offered with its format and the folder it
+  came from, and the choice is the user's rather than a guess.
+- Exporting adds `.csv` when it is missing. Typing the extension is
+  remembering a detail the program knows already, and forgetting it produced a
+  file the computer could not open.
+
+### Removed
+
+- `personal_finance_manager.py`, the original single-file program. It has been
+  superseded since 2.0.0, reads a storage format that no longer exists, and sat
+  in the root named after the project, where anyone browsing would take it for
+  the current program. The code is kept in the `v1.0.0` tag.
+
+
+### Fixed
+
+- Importing ignored a type column, so it read the sign of the amount instead.
+  The program's own export writes every amount positive with the type beside
+  it, which meant exporting and importing — a round trip — quietly turned
+  every expense into earnings. A stated type is now used when the file has
+  one, in either language, and the sign only when it does not.
+- The folders to put a file in were named in the interface language, sending
+  someone to look for a folder called "Dokumente" that Windows calls
+  "Documents". They are named as they actually are on the machine.
+- A failed import printed the operating system's own message — an errno, in
+  English whatever language was chosen — which told nobody anything they could
+  act on. A missing file now names itself and the folders that were searched,
+  and an unreadable one says so.
+- Description, amount and date could not be cancelled at all, so a task begun
+  by mistake had to be completed.
+- A first-time setup that was begun and abandoned left a user with no password
+  on it, which the ordinary path read as a single-user installation that never
+  wanted one — and let the next person straight in. A pending setup now counts
+  as an empty database and must be completed.
+- Building the audit triggers used the current table list, which meant a
+  migration replaying an older step tried to create a trigger on a table — or
+  a column — that was still several versions away. The same mistake as the
+  index one below, found in a second place; both now check what actually
+  exists.
+- Migration 7 created every index it found in the schema, but the schema always
+  describes the current version — so once migration 8 added two tables, an
+  upgrade from version 6 tried to index a table several steps away. It now
+  skips indexes whose table does not exist yet.
+
+### Notes
+
+- Session tokens and reset codes are stored hashed, so the database holds
+  nothing presentable as a login.
+- What this protects against: on a shared machine, one person casually reading
+  another's finances. Not someone holding the database file, who can open it in
+  any SQLite browser. The database is not encrypted; full-disk encryption is
+  what covers a stolen machine, and the operating system does it better than
+  this program could.
+- Schema version 10. The migrations add four tables and three columns and
+  rebuild nothing. Everyone who already existed becomes an administrator: they had
+  every power a program without roles offered, and taking it away on upgrade
+  would lock people out of their own accounts.
+- 1135 tests, up from 911.
 
 ## [3.8.1] — 2026-09-01
 

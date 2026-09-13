@@ -30,9 +30,40 @@ from .schema import EXPENSE
 class FinanceApp:
     """Everything the interface can ask the program to do."""
 
-    def __init__(self, database=None, path=None, quiet=False, user=None):
-        self.db = database or Database(path, user=user)
+    def __init__(self, database=None, path=None, quiet=False, user=None, auto_user=True):
+        self.db = database or Database(path, user=user, auto_user=auto_user)
         self.quiet = quiet
+
+    @property
+    def has_users(self):
+        return bool(self.db.users())
+
+    def sign_in_applies(self):
+        """Whether this installation has a sign-in screen at all.
+
+        With one user and no password there is nothing to choose between and
+        nothing to prove, so the screen never appears - and signing out has
+        nowhere to return to.
+        """
+        users = self.users()
+        return len(users) > 1 or any(user.has_password for user in users)
+
+    @property
+    def setup_pending(self):
+        """Whether a generated administrator is still waiting to be claimed.
+
+        An abandoned setup leaves a user row with no password on it, which the
+        ordinary path would read as a single-user installation that never
+        wanted one - and let the next person straight in. Until the generated
+        credentials are used, the database is not ready for anybody.
+        """
+        from . import auth
+
+        return auth.pending_setup(self.db) is not None
+
+    def use_user(self, user_id):
+        """Work as this user for the rest of the session."""
+        self.db.use_user(user_id)
 
     def close(self):
         self.db.close()
@@ -197,8 +228,14 @@ class FinanceApp:
     def users(self):
         return self.db.users()
 
-    def add_user(self, name, password=None):
-        return self.db.add_user(name, password)
+    def add_user(self, name, password=None, is_admin=False):
+        return self.db.add_user(name, password, is_admin)
+
+    def set_admin(self, user_id, is_admin):
+        self.db.set_admin(user_id, is_admin)
+
+    def admin_count(self):
+        return sum(1 for u in self.db.users() if u.is_admin)
 
     def rename_user(self, user_id, name):
         self.db.rename_user(user_id, name)
@@ -220,6 +257,114 @@ class FinanceApp:
 
     def user_exists(self, name):
         return self.db.user_by_name(name) is not None
+
+    # -- first run and signing in -------------------------------------------
+
+    def needs_setup(self):
+        from . import auth
+
+        return auth.needs_setup(self.db)
+
+    def create_admin(self):
+        from . import auth
+        from .locations import documents_directory
+
+        return auth.create_admin(self.db, documents_directory())
+
+    def check_setup_password(self, typed):
+        from . import auth
+
+        return auth.check_setup_password(self.db, typed)
+
+    def pending_admin(self):
+        from . import auth
+
+        row = auth.pending_setup(self.db)
+        return (row["user_id"], row["name"]) if row else (None, None)
+
+    def complete_setup(self, user_id, name, password, setup_file=None):
+        from . import auth
+
+        auth.complete_setup(self.db, user_id, name, password, setup_file)
+        self.db.use_user(user_id)
+
+    @property
+    def is_admin(self):
+        user = self.current_user()
+        return bool(user and user.is_admin)
+
+    def require_admin(self):
+        """Whether the signed-in user may manage other people's accounts."""
+        return self.is_admin
+
+    # -- signing in ---------------------------------------------------------
+
+    def signed_in_user(self):
+        """The user a running session belongs to, or None."""
+        from . import auth
+
+        token = auth.read_token(self.db.path)
+        return auth.session_user(self.db, token)
+
+    def needs_login(self):
+        """Whether this user must sign in before the program will show anything.
+
+        Only when they have set a password and have no running session. A user
+        without one never sees a prompt, so a single-person installation is
+        unchanged.
+        """
+        from . import auth
+
+        user = self.current_user()
+        if user is None or not user.has_password:
+            return False
+        token = auth.read_token(self.db.path)
+        return auth.session_user(self.db, token) != user.id
+
+    def sign_in(self, password, user_id=None):
+        """Check a password and start a session. Returns True on success."""
+        from . import auth
+
+        user_id = user_id or self.user_id
+        if not auth.authenticate(self.db, user_id, password):
+            return False
+        self.db.use_user(user_id)
+        auth.purge_expired(self.db)
+        auth.write_token(self.db.path, auth.start_session(self.db, user_id))
+        return True
+
+    def sign_out(self):
+        from . import auth
+
+        auth.end_session(self.db, auth.read_token(self.db.path))
+        auth.clear_token(self.db.path)
+
+    def change_password(self, current, new_password):
+        from . import auth
+
+        changed = auth.change_password(self.db, self.user_id, current, new_password)
+        if changed:
+            auth.clear_token(self.db.path)
+        return changed
+
+    def begin_reset(self, user_id):
+        """Write a one-time code for a user, and return (code, path)."""
+        from . import auth
+        from .locations import documents_directory
+
+        user = self.db.user(user_id)
+        return auth.begin_reset(self.db, user_id, documents_directory(), user.name)
+
+    def check_reset_code(self, user_id, typed):
+        from . import auth
+
+        return auth.check_code(self.db, user_id, typed)
+
+    def finish_reset(self, user_id, new_password, code_file=None):
+        from . import auth
+
+        auth.finish_reset(self.db, user_id, new_password, code_file)
+        auth.clear_token(self.db.path)
 
     # -- category rules ----------------------------------------------------
 

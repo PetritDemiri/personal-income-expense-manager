@@ -13,6 +13,7 @@ amounts and dd-mm-yyyy dates; the database holds integer cents and ISO text.
 Nothing above this module knows that, and nothing below it knows anything else.
 """
 
+import datetime
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -90,10 +91,15 @@ def from_iso(iso_text):
 class Database:
     """A SQLite database holding one person's finances."""
 
-    def __init__(self, path, user=None):
+    def __init__(self, path, user=None, auto_user=True):
         self.path = path
         self._requested_user = user
         self._user_id = None
+        # A fresh database normally gets a single user so it is usable at
+        # once. The command line turns this off, because an empty database is
+        # where the first administrator is generated instead, and an
+        # auto-created user would take that slot before setup could run.
+        self._auto_user = auto_user
         directory = os.path.dirname(os.path.abspath(path))
         if directory:
             os.makedirs(directory, exist_ok=True)
@@ -198,9 +204,14 @@ class Database:
         """
         rows = list(self.connection.execute("SELECT id, name_key FROM users ORDER BY id"))
         if not rows:
+            if not self._auto_user:
+                self._user_id = None
+                return
+            # The only user there is, so they hold every power the program
+            # offers; anything else would lock them out of their own data.
             with self.connection:
                 cursor = self.connection.execute(
-                    "INSERT INTO users (name, name_key) VALUES (?, ?)",
+                    "INSERT INTO users (name, name_key, is_admin) VALUES (?, ?, 1)",
                     (DEFAULT_USER_NAME, name_key(DEFAULT_USER_NAME)),
                 )
             self._user_id = cursor.lastrowid
@@ -228,6 +239,8 @@ class Database:
             password_hash=row["password_hash"],
             password_salt=row["password_salt"],
             password_iters=row["password_iters"],
+            is_admin=bool(row["is_admin"]),
+            must_change=bool(row["must_change"]),
         )
 
     def users(self):
@@ -246,29 +259,61 @@ class Database:
         ).fetchone()
         return self._user(row) if row else None
 
-    def add_user(self, name, password=None):
-        values = [name, name_key(name), None, None, None]
+    def add_user(self, name, password=None, is_admin=False, must_change=False):
+        values = [name, name_key(name), None, None, None, None]
         if password:
             values[2], values[3], values[4] = hash_password(password)
+            values[5] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
         with self.connection as conn:
             cursor = conn.execute(
                 "INSERT INTO users (name, name_key, password_hash, password_salt, "
-                " password_iters) VALUES (?, ?, ?, ?, ?)",
-                values,
+                " password_iters, password_set_at, is_admin, must_change) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (*values, int(is_admin), int(must_change)),
             )
         return cursor.lastrowid
 
+    def set_must_change(self, user_id, required):
+        with self.connection as conn:
+            conn.execute(
+                "UPDATE users SET must_change = ? WHERE id = ?",
+                (int(required), user_id),
+            )
+
+    def admin_count(self):
+        return self.connection.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1").fetchone()[
+            0
+        ]
+
+    def set_admin(self, user_id, is_admin):
+        with self.connection as conn:
+            conn.execute(
+                "UPDATE users SET is_admin = ? WHERE id = ?",
+                (1 if is_admin else 0, user_id),
+            )
+
+    def use_user(self, user_id):
+        """Work as a different user for the rest of this session."""
+        self._user_id = user_id
+
     def set_password(self, user_id, password):
-        """Store a password hash, or clear it when given nothing."""
+        """Store a password hash, or clear it when given nothing.
+
+        The moment is stamped so the change history can record that a password
+        changed and when, without the hash itself ever being copied into a log
+        that outlives it.
+        """
         if password:
             digest, salt, iterations = hash_password(password)
+            stamped = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
         else:
-            digest = salt = iterations = None
+            digest = salt = iterations = stamped = None
         with self.connection as conn:
             conn.execute(
                 "UPDATE users SET password_hash = ?, password_salt = ?, "
-                " password_iters = ? WHERE id = ?",
-                (digest, salt, iterations, user_id),
+                " password_iters = ?, password_set_at = ?, must_change = 0 "
+                "WHERE id = ?",
+                (digest, salt, iterations, stamped, user_id),
             )
 
     def check_password(self, user_id, password):

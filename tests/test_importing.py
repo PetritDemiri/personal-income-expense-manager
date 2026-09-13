@@ -23,6 +23,7 @@ from personal_finance.importing import (
     is_deposit,
     mark_duplicates,
     normalise,
+    parse_kind,
     parse_number,
     read_rows,
     sniff_delimiter,
@@ -417,3 +418,93 @@ class TestReadRows:
     def test_an_empty_file_is_rejected(self):
         with pytest.raises(ImportError_):
             read_rows(b"")
+
+
+class TestTheTypeColumn:
+    """A file may say what each row is, and that beats reading the sign.
+
+    The program's own export writes every amount positive with the type in a
+    column beside it. Reading only the sign made every exported row come back
+    as income - so exporting and importing, which ought to be a round trip,
+    quietly turned every expense into earnings.
+    """
+
+    def rows(self):
+        return [
+            ["01-09-2026", "Te Ardhura", "Paga", "1200.00"],
+            ["02-09-2026", "Shpenzime", "Qera", "300.00"],
+        ]
+
+    def mapping(self):
+        return {"date": 0, "kind": 1, "description": 2, "amount": 3}
+
+    def test_the_column_is_recognised(self):
+        found = guess_columns(["Data", "Lloji", "Pershkrimi", "Shuma"])
+        assert found["kind"] == 1
+
+    def test_the_english_heading_is_recognised(self):
+        assert guess_columns(["Date", "Type", "Description", "Amount"])["kind"] == 1
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("Te Ardhura", INCOME),
+            ("të ardhura", INCOME),
+            ("Income", INCOME),
+            ("Shpenzime", EXPENSE),
+            ("Expense", EXPENSE),
+            ("Transferim", TRANSFER),
+        ],
+    )
+    def test_the_words_it_understands(self, text, expected):
+        assert parse_kind(text) == expected
+
+    @pytest.mark.parametrize("text", ["", "   ", None, "xyz"])
+    def test_anything_else_names_no_type(self, text):
+        assert parse_kind(text) is None
+
+    def test_a_positive_amount_can_still_be_an_expense(
+        self,
+    ):
+        """Which is the whole point: the export writes them all positive."""
+        candidates, _sep, _fmt = build_candidates(None, self.rows(), self.mapping())
+        assert candidates[0].kind == INCOME
+        assert candidates[1].kind == EXPENSE
+
+    def test_the_sign_is_used_when_there_is_no_column(self):
+        rows = [["01-09-2026", "Paga", "1200.00"], ["02-09-2026", "Qera", "-300.00"]]
+        mapping = {"date": 0, "description": 1, "amount": 2}
+        candidates, _sep, _fmt = build_candidates(None, rows, mapping)
+        assert candidates[0].kind == INCOME
+        assert candidates[1].kind == EXPENSE
+
+    def test_an_unreadable_type_falls_back_to_the_sign(self):
+        rows = [["01-09-2026", "xyz", "Qera", "-300.00"]]
+        candidates, _sep, _fmt = build_candidates(None, rows, self.mapping())
+        assert candidates[0].kind == EXPENSE
+
+    def test_a_stated_type_beats_a_deposit_looking_description(self):
+        rows = [["01-09-2026", "Te Ardhura", "ATM Deponimi ne llogari", "50.00"]]
+        candidates, _sep, _fmt = build_candidates(
+            None, rows, self.mapping(), deposit_is_transfer=True
+        )
+        assert candidates[0].kind == INCOME
+
+    def test_exporting_and_importing_is_a_round_trip(self, app, tmp_path, monkeypatch):
+        """The case that was broken: every expense came back as income."""
+        from decimal import Decimal
+
+        from personal_finance.export import export_transactions
+
+        monkeypatch.setenv("FINANCE_EXPORT_DIR", str(tmp_path))
+        app.add_transaction(INCOME, "Paga", Decimal("1200"), "01-09-2026", "Paga")
+        app.add_transaction(EXPENSE, "Qera", Decimal("300"), "02-09-2026", "Qera")
+
+        _count, written = export_transactions("dalje", app.transactions())
+        with open(written, "rb") as handle:
+            header, rows, _encoding = read_rows(handle.read())
+
+        mapping = guess_columns(header)
+        candidates, _sep, _fmt = build_candidates(header, rows, mapping)
+        assert [c.kind for c in candidates] == [INCOME, EXPENSE]
+        assert [c.amount for c in candidates] == [Decimal("1200.00"), Decimal("300.00")]
