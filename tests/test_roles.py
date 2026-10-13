@@ -51,6 +51,20 @@ class TestGeneratedAdministrator:
         _name, password, _path = empty.create_admin()
         assert password_problems(password) == []
 
+    def test_it_satisfies_them_every_time(self):
+        """One in thirty-six used to have no digit, so the test above failed at
+        random. Checked over enough draws that the old rate could not hide."""
+        from personal_finance.passwords import (
+            CODE_ALPHABET,
+            generate_setup_password,
+            password_problems,
+        )
+
+        for _ in range(2000):
+            password = generate_setup_password()
+            assert password_problems(password) == [], password
+            assert set(password) <= set(CODE_ALPHABET)
+
     def test_the_name_is_plainly_admin(self, empty):
         """It is read off a file and typed back, so it should be the obvious
         word rather than characters to transcribe."""
@@ -520,3 +534,308 @@ class TestAnUnclaimedDatabaseCannotBeUsed:
         capsys.readouterr()
         assert main(["--baza", path, "--lista"]) == 0
         assert "nuk ka asnje perdorues" not in capsys.readouterr().out
+
+
+@pytest.fixture
+def unclaimed_file(tmp_path, monkeypatch):
+    """The path of a database with nobody in it, for running the whole program."""
+    from personal_finance import colors, i18n
+
+    i18n.set_language("sq")
+    colors.configure(force_off=True)
+    monkeypatch.setenv("FINANCE_EXPORT_DIR", str(tmp_path))
+    path = str(tmp_path / "finance.db")
+    app = FinanceApp(path=path, quiet=True)
+    with app.db.connection as conn:
+        conn.execute("DELETE FROM users")
+    app.close()
+    return path
+
+
+# Leaving the code boxes the way a person does: Escape in a terminal, which
+# reads as the end of input where a line is read instead.
+ESCAPE = None
+
+
+def launch(path, monkeypatch, at_code=(ESCAPE,)):
+    """Run the program once as a person would, replying to the code prompt in turn.
+
+    Returns (exit code, the codes the credentials file held each time it was
+    asked for). Every other question is answered by cancelling.
+    """
+    import builtins
+
+    from personal_finance.cli import main
+
+    directory = os.path.dirname(path)
+    replies = list(at_code)
+    shown = []
+    asked = []
+
+    def answer(prompt=""):
+        asked.append(prompt)
+        if len(asked) > 20:
+            raise AssertionError(f"the program kept asking: {asked[-3:]}")
+        if prompt == "Fjalekalimi: ":
+            text = open(os.path.join(directory, "administratori.txt"), encoding="utf-8").read()
+            shown.append(text.split("\n")[1].replace(" ", ""))
+            reply = replies.pop(0)
+            if reply is ESCAPE:
+                raise EOFError
+            return reply
+        return "anulo"
+
+    monkeypatch.setattr(builtins, "input", answer)
+    return main(["--baza", path]), shown
+
+
+def setup_rows(path):
+    import sqlite3
+
+    connection = sqlite3.connect(path)
+    try:
+        users = [row[0] for row in connection.execute("SELECT name FROM users")]
+        codes = connection.execute("SELECT COUNT(*) FROM admin_setup").fetchone()[0]
+    finally:
+        connection.close()
+    return users, codes
+
+
+class TestACodeLivesOnlyWhileTheProgramIsOpen:
+    """A first-run code used to last until it expired, so closing and reopening
+    could leave a stale file - or a copy still open in an editor - showing a
+    code that no longer worked. Now leaving the program in any way discards
+    the code and deletes the file, and the next launch writes a new one."""
+
+    def test_leaving_discards_the_code_and_deletes_its_file(self, unclaimed_file, monkeypatch):
+        code, _shown = launch(unclaimed_file, monkeypatch)
+        assert code == 1
+        assert setup_rows(unclaimed_file) == ([], 0)
+        assert not os.path.exists(
+            os.path.join(os.path.dirname(unclaimed_file), "administratori.txt")
+        )
+
+    def test_every_launch_writes_a_new_code(self, unclaimed_file, monkeypatch):
+        _code, first = launch(unclaimed_file, monkeypatch)
+        _code, second = launch(unclaimed_file, monkeypatch)
+        assert first[0] != second[0]
+
+    def test_a_code_from_an_earlier_launch_no_longer_works(
+        self, unclaimed_file, monkeypatch, capsys
+    ):
+        _code, first = launch(unclaimed_file, monkeypatch)
+        capsys.readouterr()
+        launch(unclaimed_file, monkeypatch, at_code=(first[0], ESCAPE))
+        assert "Fjalekalim i gabuar" in capsys.readouterr().out
+
+    def test_a_run_that_was_killed_leaves_nothing_usable(self, unclaimed_file, monkeypatch):
+        """Killed outright, nothing could run on the way out - so the next
+        launch clears what was left before anything else."""
+        app = FinanceApp(path=unclaimed_file, quiet=True, auto_user=False)
+        _name, left_behind, _file = app.create_admin()
+        app.close()
+
+        _code, shown = launch(unclaimed_file, monkeypatch)
+        assert shown[0] != left_behind
+
+    def test_a_flagged_run_leaves_everything_as_it_found_it(self, unclaimed_file, monkeypatch):
+        """Someone may be part-way through the setup in another window."""
+        from personal_finance.cli import main
+
+        app = FinanceApp(path=unclaimed_file, quiet=True, auto_user=False)
+        _name, _password, written = app.create_admin()
+        app.close()
+
+        assert main(["--baza", unclaimed_file, "--lista"]) == 1
+        assert os.path.exists(written)
+        assert setup_rows(unclaimed_file) == (["admin"], 1)
+
+    def test_closing_the_window_on_windows_clears_it_too(self, unclaimed_file):
+        """The close button runs this on a thread of its own, with a
+        connection of its own."""
+        app = FinanceApp(path=unclaimed_file, quiet=True, auto_user=False)
+        _name, _password, written = app.create_admin()
+        app.close()
+
+        auth.forget_setup_at(unclaimed_file, os.path.dirname(written))
+        assert setup_rows(unclaimed_file) == ([], 0)
+        assert not os.path.exists(written)
+
+    def test_without_a_database_only_the_file_goes(self, tmp_path):
+        written = tmp_path / "administratori.txt"
+        written.write_text("admin\nAAA AAA AAA AAA\n")
+        auth.forget_setup_at(str(tmp_path / "missing.db"), str(tmp_path))
+        assert not written.exists()
+        assert not (tmp_path / "missing.db").exists()
+
+    def test_the_setup_itself_never_picks_up_an_earlier_code(self, empty, monkeypatch, tmp_path):
+        """The program clears what an earlier run left before the setup starts,
+        and the setup does so again on its own, for anything that calls it
+        directly."""
+        import builtins
+
+        from personal_finance.ui import run_first_setup
+
+        _name, left_behind, _path = empty.create_admin()
+        shown = []
+
+        def answer(prompt=""):
+            if prompt == "Fjalekalimi: ":
+                text = (tmp_path / "administratori.txt").read_text(encoding="utf-8")
+                shown.append(text.split("\n")[1].replace(" ", ""))
+                raise EOFError
+            raise AssertionError(f"unexpected question: {prompt!r}")
+
+        monkeypatch.setattr(builtins, "input", answer)
+        assert run_first_setup(empty) is False
+        assert shown and shown[0] != left_behind
+        # The earlier attempt's account is gone, not left beside a second one.
+        assert [user.name for user in empty.users()] == ["admin"]
+        assert empty.check_setup_password(left_behind)[0] != ResetOutcome.OK
+
+    def test_a_claimed_account_is_never_touched(self, empty):
+        _name, password, path = empty.create_admin()
+        user_id, _ = empty.pending_admin()
+        empty.check_setup_password(password)
+        empty.complete_setup(user_id, "Petrit", "Fjalekalimi1", path)
+
+        empty.forget_unclaimed_setup()
+        user = empty.users()[0]
+        assert (user.name, user.has_password) == ("Petrit", True)
+
+    def test_a_claimed_program_is_unaffected(self, unclaimed_file, monkeypatch):
+        """Claimed once, every later launch goes straight to signing in."""
+        import builtins
+        import getpass
+
+        from personal_finance.cli import main
+
+        monkeypatch.setattr(getpass, "getpass", lambda _prompt="": "Fjalekalimi1")
+        replies = iter(["Petrit", "3"])
+        directory = os.path.dirname(unclaimed_file)
+        asked = []
+
+        def answer(prompt=""):
+            asked.append(prompt)
+            if len(asked) > 20:
+                raise AssertionError(f"the program kept asking: {asked[-3:]}")
+            if prompt == "Fjalekalimi: ":
+                text = open(os.path.join(directory, "administratori.txt"), encoding="utf-8").read()
+                return text.split("\n")[1]
+            if prompt.startswith("Vendosni Zgjedhjen"):
+                return "21"
+            if "Vazhdo" in prompt:
+                return "po"
+            return next(replies)
+
+        monkeypatch.setattr(builtins, "input", answer)
+        assert main(["--baza", unclaimed_file]) == 0
+        assert setup_rows(unclaimed_file) == (["Petrit"], 0)
+
+
+class TestASetupAbandonedAfterTheRightCode:
+    """Typing the right code marked it used. Leaving before choosing a name
+    and password left an administrator with no password, which no longer
+    counted as an unfinished setup - so every later run, flags included, went
+    straight in as an administrator nobody had claimed."""
+
+    def abandon_after_the_code(self, app):
+        _name, password, _path = app.create_admin()
+        assert app.check_setup_password(password)[0] == ResetOutcome.OK
+        return app.pending_admin()
+
+    def test_it_still_counts_as_unfinished(self, empty):
+        self.abandon_after_the_code(empty)
+        assert empty.setup_pending
+
+    def test_a_flagged_run_is_refused(self, unclaimed_file):
+        from personal_finance.cli import main
+
+        app = FinanceApp(path=unclaimed_file, quiet=True, auto_user=False)
+        self.abandon_after_the_code(app)
+        app.close()
+        assert main(["--baza", unclaimed_file, "--lista"]) == 1
+
+    def test_the_next_launch_starts_the_setup_again(self, unclaimed_file, monkeypatch, capsys):
+        app = FinanceApp(path=unclaimed_file, quiet=True, auto_user=False)
+        self.abandon_after_the_code(app)
+        app.close()
+        capsys.readouterr()
+
+        code, shown = launch(unclaimed_file, monkeypatch)
+        assert code == 1
+        assert shown, "the setup was not offered"
+        assert "Menu:" not in capsys.readouterr().out
+        assert setup_rows(unclaimed_file) == ([], 0)
+
+    def test_an_account_used_through_the_old_hole_keeps_its_data(self, empty):
+        """Before 3.10.0 someone may have walked in that way and used it.
+        Deleting the account would delete their data with it; only the stale
+        code goes."""
+        from decimal import Decimal
+
+        from personal_finance.schema import EXPENSE
+
+        self.abandon_after_the_code(empty)
+        empty.use_user(empty.users()[0].id)
+        empty.add_transaction(EXPENSE, "Qera", Decimal("300"), "01-09-2026", "Qera")
+
+        empty.forget_unclaimed_setup()
+        assert [user.name for user in empty.users()] == ["admin"]
+        assert [view.description for view in empty.transactions()] == ["Qera"]
+        assert not empty.setup_pending
+
+    def test_and_its_user_carries_on_as_before(self, unclaimed_file, monkeypatch, capsys):
+        import builtins
+        from decimal import Decimal
+
+        from personal_finance.cli import main
+        from personal_finance.schema import EXPENSE
+
+        app = FinanceApp(path=unclaimed_file, quiet=True, auto_user=False)
+        self.abandon_after_the_code(app)
+        app.use_user(app.users()[0].id)
+        app.add_transaction(EXPENSE, "Qera", Decimal("300"), "01-09-2026", "Qera")
+        app.close()
+
+        replies = iter(["21"])
+        monkeypatch.setattr(builtins, "input", lambda _prompt="": next(replies))
+        capsys.readouterr()
+        assert main(["--baza", unclaimed_file]) == 0
+        shown = capsys.readouterr().out
+        assert "Konfigurimi i pare" not in shown
+        assert "Menu:" in shown
+
+
+class TestTheCredentialsFile:
+    """The code is typed into boxes that accept only capitals and digits, so a
+    lowercase letter does nothing at all - which looks like the program has
+    frozen, to someone who does not know that."""
+
+    def test_it_says_the_password_is_typed_in_capitals(self, empty):
+        _name, _password, path = empty.create_admin()
+        lines = open(path, encoding="utf-8").read().splitlines()
+        assert lines[3:] == [
+            "Ky fjalekalim skadon pas 5 minutash.",
+            "This password expires in 5 minutes.",
+            "",
+            "Kujdes: fjalekalimi duhet te shkruhet i gjithi me shkronja te medha.",
+            "Warning: the password should be typed in all uppercase letters.",
+        ]
+
+    def test_in_both_languages_whatever_the_interface(self, empty):
+        """The file is read before anyone has chosen a language."""
+        from personal_finance import i18n
+
+        i18n.set_language("en")
+        try:
+            _name, _password, path = empty.create_admin()
+        finally:
+            i18n.set_language("sq")
+        text = open(path, encoding="utf-8").read()
+        assert "Kujdes: fjalekalimi duhet te shkruhet" in text
+        assert "Warning: the password should be typed in all uppercase letters." in text
+
+    def test_the_generated_password_really_is_in_capitals(self, empty):
+        _name, password, _path = empty.create_admin()
+        assert password == password.upper()

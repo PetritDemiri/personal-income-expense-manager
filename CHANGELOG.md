@@ -5,10 +5,111 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Twenty-one versions are recorded below. Twenty of them were released; 2.0.0 was a
-development phase whose work shipped as part of 2.1.0, and it is documented
-here because it is a distinct stage in the project's history. Commit hashes are
-given so each entry can be traced back to the code.
+Twenty-two versions are recorded below. Twenty-one of them were released;
+2.0.0 was a development phase whose work shipped as part of 2.1.0, and it is
+documented here because it is a distinct stage in the project's history. Commit
+hashes are given so each entry can be traced back to the code.
+
+## [3.10.0] — 2026-10-13
+
+What a test build for the program's first user who is not also its author
+showed was worth having, brought into the program itself - and a hole found
+while doing it.
+
+### Added
+
+- The first time a person opens the program it runs its own tests on screen,
+  which takes one to three minutes, says how it went, and waits for Enter. It
+  writes down that it has run in `Documents\Financat\Testet\testet.txt` - the
+  date, the version, and how many passed, failed or were skipped - and never
+  runs them again; deleting the file brings them back. They run only where
+  they exist, in a copy of the source with pytest installed, and only for a
+  person at a terminal: a script, a pipe or any run with flags never waits on
+  them. `FINANCE_SKIP_TESTS` switches them off.
+- A crash is written to `Documents\Financat\Gabimet\gabimet.txt` - when, which
+  version, on what Python and system, and the traceback - and the window says
+  where. Entries are added, never replaced. A script still sees the error
+  raised.
+- The window stays open after the program ends in failure - three wrong
+  passwords, a cancelled or failed setup, a crash - until Enter is pressed. A
+  double-clicked window otherwise disappears with the reason still on it.
+  Leaving on purpose never waits, and neither does a script.
+- On Windows the window is named after the program while it runs, and given
+  its old title back afterwards.
+- `FINANCE_HOME` moves the whole of `Documents\Financat`, which is what the
+  tests and the demo recordings use to stay away from real folders.
+
+### Changed
+
+- Everything the program writes for itself lives in `Documents\Financat`, each
+  kind in a folder of its own: the database in `Te dhenat`, the test record in
+  `Testet`, the error log in `Gabimet`. Before, the database sat in whichever
+  folder the program was started from, which for a double-clicked program or a
+  shortcut depends on how it was opened, so the data could seem to vanish.
+  `FINANCE_DATA_DIR` and `--baza` still choose another place. Exports, the
+  first-run credentials and a reset code still go to Documents itself, since
+  they are meant to be found; `FINANCE_EXPORT_DIR` moves those and never the
+  database.
+- The first time 3.10.0 runs from a folder that holds an older `finance.db`,
+  it copies it to the new place and says so. Copied, never moved: the original
+  is left exactly as it was, so nothing can be lost if the copy goes wrong.
+  SQLite's own backup is used, since a plain copy would leave behind changes
+  still in the write-ahead log. If it cannot be copied it is used where it is.
+- A first-run code lives only while the program that showed it is open.
+  Leaving in any way - finishing, cancelling, Ctrl+C, a crash, closing the
+  window - discards the code and deletes `administratori.txt`, and the next
+  launch writes a new one. A code used to last until it expired, so closing
+  and reopening could leave a stale file, or a copy still open in Notepad,
+  showing a code that no longer worked. Whatever a run killed outright leaves
+  is cleared on the next launch. A run with flags leaves it all alone, since
+  someone may be part-way through the setup in another window.
+- `administratori.txt` says, in Albanian and English, that the password is
+  typed in capitals. The boxes accept only capitals and digits, so a lowercase
+  letter does nothing at all, which looks as if the program has frozen.
+
+### Removed
+
+- The note on the users screen and at the password prompt saying the command
+  line never asks for a password, and that passwords are for the web
+  interface. Untrue since 3.9.0 added signing in. The same claim is gone from
+  the README, a docstring and a schema comment.
+
+### Fixed
+
+- A setup abandoned after the right code was typed - the window closed, or the
+  name prompt cancelled - left an administrator with no password that no
+  longer counted as unfinished, so every later run, flags included, walked
+  straight in as it. It now counts as unfinished until a name and password are
+  chosen: a run with flags is refused, and the next launch starts the setup
+  again. Anyone who already walked in that way and used the program keeps the
+  account and everything in it; only the stale code goes.
+- Three wrong passwords at the sign-in screen ended the program with success,
+  indistinguishable from leaving on purpose. It is now a failure, which is
+  what keeps the window open to read it.
+- The generated setup password had no digit about one time in thirty-six, so
+  it broke the password rules it is meant to satisfy and a test failed at
+  random - with seven CI jobs a push, roughly one push in six went red for
+  nothing. It is now drawn again until it has one, which keeps every valid
+  password equally likely.
+- A run with flags refused on an unclaimed database left it open.
+- The README's menu option numbers for categories, rules, import, history and
+  users were out of date, and it still offered `personal_finance_manager.py`,
+  removed in 3.9.1.
+
+### Notes
+
+- The first-launch tests run in a process of their own. Run inside the
+  program, pytest took over the standard streams and on Windows never handed
+  them back, after which the password typed at the first-run setup was shown
+  as it was typed.
+- The test suite gives every test folders of its own and switches the
+  first-launch tests off, so it can never read or write a real
+  `Documents\Financat`, or copy a real `finance.db` from the working copy it
+  runs in.
+- `.gitignore` now covers the session file, the one-time code files and the
+  program's other files, which an older version could leave in the project
+  folder - a session file is a working login.
+- 1270 tests, up from 1148.
 
 ## [3.9.1] — 2026-09-13
 

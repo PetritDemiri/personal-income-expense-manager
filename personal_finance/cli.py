@@ -5,17 +5,18 @@ no flags at all, the interactive menu runs.
 """
 
 import argparse
+import contextlib
 import os
 import sys
 from decimal import Decimal, InvalidOperation
 
-from . import colors
+from . import colors, console
 from .accounts import balances_for, count_unassigned, find_account
 from .app import FinanceApp
 from .budgets import all_statuses
-from .colors import BOLD, CYAN, RED, YELLOW, paint, type_color
-from .config import DATABASE_FILE, data_path
-from .database import UnknownUser
+from .colors import BOLD, CYAN, DIM, RED, YELLOW, paint, type_color
+from .config import DATA_DIR_ENV, DATABASE_FILE, data_path
+from .database import UnknownUser, carry_over
 from .dates import current_date_str, format_date, month_of, parse_date, parse_month, today
 from .display import (
     print_accounts,
@@ -568,6 +569,10 @@ def run_sessions(app):
     The program loops between the sign-in screen and the menu rather than
     ending when someone signs out. Leaving is offered at the screen, which is
     the one place where nobody's data is on show.
+
+    Returns False when the program ends because someone could not sign in -
+    three wrong passwords, or a reset abandoned - so that is not mistaken for
+    leaving on purpose.
     """
     from .ui import choose_user, sign_in_as
 
@@ -586,13 +591,13 @@ def run_sessions(app):
             if chosen is None:
                 print()
                 print(paint(t("goodbye"), CYAN))
-                return
+                return True
             app.use_user(chosen)
             if not sign_in_as(app, chosen):
-                return
+                return False
 
         if run_menu(app):
-            return
+            return True
 
 
 def do_charts(app, args):
@@ -768,6 +773,42 @@ def run_cli(app, args):
     return did_something
 
 
+# Exit codes after which a person at the program is given time to read why it
+# ended: a failure (a cancelled or failed setup, a refused sign-in), and a user
+# that does not exist. Not Ctrl+C - leaving on purpose needs no reading.
+FAILURE_CODES = (1, 2)
+
+
+def database_location(args):
+    """The database to open, carrying an old one over to the new place first.
+
+    Before 3.10.0 the database lived in whichever folder the program was
+    started from. The first time this version runs from a folder that still
+    holds one, and the new place has none yet, it is copied across - never
+    moved: the original stays exactly where it was, so nothing can be lost if
+    the copy goes wrong. If it cannot be copied, it is used where it is.
+    """
+    if args.baza:
+        return args.baza
+    path = data_path(DATABASE_FILE)
+    if os.environ.get(DATA_DIR_ENV) or os.path.exists(path):
+        return path
+    old = os.path.abspath(DATABASE_FILE)
+    if not os.path.isfile(old) or os.path.abspath(path) == old:
+        return path
+
+    import sqlite3
+
+    try:
+        carry_over(old, path)
+    except (OSError, sqlite3.Error):
+        print(paint(t("data_not_carried", path=path, old=old), YELLOW))
+        return old
+    print(paint(t("data_carried", path=path), BOLD))
+    print(paint(t("data_old_kept", path=old), DIM))
+    return path
+
+
 def main(argv=None):
     """Entry point. Returns a process exit code."""
     parser = build_parser()
@@ -785,9 +826,45 @@ def main(argv=None):
         return value is not None and value is not False
 
     interactive = not any(was_given(name) for name in ACTION_FLAGS)
+    # A person at a terminal, as opposed to a script, a pipe or the tests. Only
+    # then is the window named, the tests run on a first launch, and the window
+    # held open after a failure - none of which a script would want.
+    attended = interactive and console.attended()
+
+    if attended:
+        console.set_title(t("window_title"))
+    try:
+        code = run_program(args, interactive, attended)
+    except Exception:
+        if console.window_closed():
+            # The terminal went away mid-way, and whatever broke on the way
+            # out broke because of that. There is nobody to tell.
+            return 129
+        path = console.log_crash()
+        if not attended:
+            raise
+        console.report_crash(path)
+        code = 1
+    finally:
+        if attended:
+            console.restore_title()
+
+    if attended and code in FAILURE_CODES and not console.window_closed():
+        console.pause(t("press_enter_close"))
+    return code
+
+
+def run_program(args, interactive, attended):
+    """Everything main does between reading the flags and handing back a code."""
+    if attended:
+        from .selftest import run_on_first_launch
+
+        run_on_first_launch(console.pause)
+
+    path = database_location(args)
     try:
         app = FinanceApp(
-            path=args.baza or data_path(DATABASE_FILE),
+            path=path,
             quiet=not interactive,
             user=args.perdoruesi,
             # No user is invented for an empty database, whichever way the
@@ -814,30 +891,47 @@ def main(argv=None):
     # an owner or prompting where nobody may be watching.
     if not interactive and (not app.has_users or app.setup_pending):
         print(paint(t("setup_required"), YELLOW))
+        app.close()
         return 1
 
+    # While a person is at the program, closing its window clears a first-run
+    # code just as leaving it does. On Windows that has to happen in a handler
+    # with a connection of its own; elsewhere the close becomes an ordinary
+    # exit, and the clean-up below runs on the way out.
+    watch = contextlib.nullcontext()
+    if attended:
+        from . import auth
+        from .locations import documents_directory
+
+        documents = documents_directory()
+        watch = console.CloseWatch(lambda: auth.forget_setup_at(path, documents))
+
     try:
-        if interactive:
-            from .ui import run_first_setup
+        with watch:
+            if interactive:
+                from .ui import run_first_setup
 
-            # An empty database is claimed by whoever holds the generated
-            # credentials, not by whoever happens to run the program. A setup
-            # begun and abandoned counts as empty: it leaves a user with no
-            # password, which would otherwise look like an installation that
-            # never wanted one.
-            if not app.has_users or app.setup_pending:
-                if not run_first_setup(app):
+                # A first-run code lives only while the program that showed it
+                # is open, so whatever an earlier run left - closed, killed, or
+                # abandoned after the right code - is cleared before anything
+                # else is decided.
+                app.forget_unclaimed_setup()
+
+                # An empty database is claimed by whoever holds the generated
+                # credentials, not by whoever happens to run the program.
+                if not app.has_users or app.setup_pending:
+                    if not run_first_setup(app):
+                        return 1
+                elif not app.sign_in_applies():
+                    app.use_user(app.users()[0].id)
+            elif not args.dil and app.needs_login():
+                from .ui import sign_in
+
+                if not sign_in(app):
                     return 1
-            elif not app.sign_in_applies():
-                app.use_user(app.users()[0].id)
-        elif not args.dil and app.needs_login():
-            from .ui import sign_in
 
-            if not sign_in(app):
+            if not run_cli(app, args) and not run_sessions(app):
                 return 1
-
-        if not run_cli(app, args):
-            run_sessions(app)
     except (KeyboardInterrupt, EOFError):
         print()
         print(t("goodbye"))
@@ -849,6 +943,13 @@ def main(argv=None):
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 141
     finally:
+        if interactive:
+            import sqlite3
+
+            try:
+                app.forget_unclaimed_setup()
+            except sqlite3.Error:
+                pass
         app.close()
     return 0
 

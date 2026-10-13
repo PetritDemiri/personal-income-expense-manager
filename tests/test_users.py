@@ -382,3 +382,47 @@ class TestUserModel:
     def test_has_password(self):
         assert not User("Petrit").has_password
         assert User("Petrit", password_hash="x", password_salt="y").has_password
+
+
+class TestNoNoteThatPasswordsAreOnlyForTheWeb:
+    """The users screen and the password prompt both said the command line
+    never asks for a password - untrue since 3.9.0 added signing in."""
+
+    @pytest.fixture(autouse=True)
+    def plain(self):
+        from personal_finance import colors, i18n
+
+        colors.configure(force_off=True)
+        yield
+        i18n.set_language("sq")
+
+    def test_not_on_the_users_screen(self, app, capsys):
+        from personal_finance.ui import show_users
+
+        show_users(app)
+        shown = capsys.readouterr().out
+        assert "internetit" not in shown
+        assert "rreshti i komandes" not in shown
+
+    def test_not_when_setting_a_password(self, app, monkeypatch, capsys):
+        import builtins
+
+        from personal_finance.ui import set_user_password
+
+        replies = iter(["1", "anulo"])
+        monkeypatch.setattr(builtins, "input", lambda _prompt="": next(replies))
+        set_user_password(app)
+        assert "internetit" not in capsys.readouterr().out
+
+    def test_not_in_english_either(self, app, capsys):
+        from personal_finance import i18n
+        from personal_finance.ui import show_users
+
+        i18n.set_language("en")
+        show_users(app)
+        assert "web interface" not in capsys.readouterr().out
+
+    def test_the_message_is_gone_from_both_languages(self):
+        from personal_finance.i18n import MESSAGES
+
+        assert all("password_note" not in catalog for catalog in MESSAGES.values())

@@ -1,7 +1,7 @@
 """Vendndodhjet e sistemit / Platform locations.
 
-Finding the user's Documents folder, which is not `~/Documents` on two of the
-three platforms this runs on:
+Finding the user's Documents folder, and the program's own folders inside it.
+Documents is not `~/Documents` on two of the three platforms this runs on:
 
 Windows may have the folder relocated, or redirected into OneDrive, which is
 common enough that assuming the default path is wrong for a lot of people. The
@@ -22,8 +22,20 @@ import os
 import subprocess
 import sys
 
-# Overrides everything below. For anyone who keeps exports somewhere specific.
+# Overrides where bare filenames go. For anyone who keeps exports somewhere
+# specific - it does not move the program's own folders, which a setting meant
+# for exports should never do to someone's database.
 EXPORT_DIR_ENV = "FINANCE_EXPORT_DIR"
+
+# Everything the program writes for itself lives in one folder inside
+# Documents, each kind in a folder of its own. The names are fixed rather than
+# translated: a folder that changed name with the interface language would
+# leave the data behind whenever the language did.
+HOME_ENV = "FINANCE_HOME"
+APP_FOLDER = "Financat"
+DATA_FOLDER = "Te dhenat"
+TESTS_FOLDER = "Testet"
+ERRORS_FOLDER = "Gabimet"
 
 
 def _windows_documents():
@@ -70,15 +82,23 @@ def _xdg_documents():
 
 
 def documents_directory():
+    """Where bare filenames go: Documents, unless FINANCE_EXPORT_DIR says otherwise.
+
+    Exports, the first-run credentials and a password-reset code all land
+    here, since they are files a person is meant to find.
+    """
+    override = os.environ.get(EXPORT_DIR_ENV)
+    if override:
+        return override
+    return user_documents()
+
+
+def user_documents():
     """The user's Documents folder, or the best available substitute.
 
     Never returns None: falls back to the home directory, then to the current
     directory, so a caller can always write somewhere.
     """
-    override = os.environ.get(EXPORT_DIR_ENV)
-    if override:
-        return override
-
     if sys.platform == "win32":
         found = _windows_documents()
         if found:
@@ -98,6 +118,23 @@ def documents_directory():
         return home
 
     return os.getcwd()
+
+
+def app_directory():
+    """Documents\\Financat, where the program keeps what it writes for itself.
+
+    FINANCE_HOME moves the whole of it, which is what the tests and the demo
+    recordings use to stay away from anyone's real folders.
+    """
+    override = os.environ.get(HOME_ENV)
+    if override:
+        return override
+    return os.path.join(user_documents(), APP_FOLDER)
+
+
+def app_subdirectory(name):
+    """One of the program's own folders inside Documents\\Financat."""
+    return os.path.join(app_directory(), name)
 
 
 # The registry names for the folders people actually keep downloads in. The

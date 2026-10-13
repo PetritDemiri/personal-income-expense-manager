@@ -67,12 +67,14 @@ class FinanceApp:
 
         An abandoned setup leaves a user row with no password on it, which the
         ordinary path would read as a single-user installation that never
-        wanted one - and let the next person straight in. Until the generated
-        credentials are used, the database is not ready for anybody.
+        wanted one - and let the next person straight in. Until the account
+        has a name and password of its own, the database is not ready for
+        anybody. That includes a setup abandoned after the right code was
+        typed: counting only codes not yet typed let exactly that case through.
         """
         from . import auth
 
-        return auth.pending_setup(self.db) is not None
+        return bool(auth.unclaimed_admins(self.db.connection))
 
     def use_user(self, user_id):
         """Work as this user for the rest of the session."""
@@ -255,12 +257,7 @@ class FinanceApp:
         return self.db.user(user_id)
 
     def set_password(self, user_id, password):
-        """Store a password for the web interface.
-
-        The command line never asks for one: anyone who can run the program
-        can open the database file directly, so a prompt would add friction
-        without adding protection.
-        """
+        """Store a password, which the sign-in screen will then ask for."""
         self.db.set_password(user_id, password)
 
     def delete_user(self, user_id):
@@ -283,6 +280,17 @@ class FinanceApp:
         from .locations import documents_directory
 
         return auth.create_admin(self.db, documents_directory())
+
+    def forget_unclaimed_setup(self):
+        """Discard a first-run code nobody claimed, and delete its file.
+
+        See auth.forget_setup: a code lives only while the program that
+        showed it is open.
+        """
+        from . import auth
+        from .locations import documents_directory
+
+        auth.forget_setup(self.db.connection, documents_directory())
 
     def check_setup_password(self, typed):
         from . import auth

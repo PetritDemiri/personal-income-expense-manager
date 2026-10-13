@@ -667,3 +667,19 @@ class TestRuleSuggestionOnManualEntry:
         output = capsys.readouterr().out
         assert "Sugjerim" in output
         assert app.transactions()[-1].category == "Argëtim"
+
+
+class TestTheMessageCatalogs:
+    """A message in one language and not the other falls back to Albanian, so a
+    missing English one shows up as Albanian in the middle of an English screen."""
+
+    def test_both_languages_have_the_same_messages(self):
+        from personal_finance.i18n import MESSAGES
+
+        assert set(MESSAGES["sq"]) == set(MESSAGES["en"])
+
+    def test_none_is_empty(self):
+        from personal_finance.i18n import MESSAGES
+
+        for language, catalog in MESSAGES.items():
+            assert all(text.strip() for text in catalog.values()), language

@@ -4,7 +4,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A command-line personal income and expense manager, with an Albanian interface and an English option. Data lives in SQLite. No runtime dependencies — standard library only.
+A command-line personal income and expense manager, with an Albanian interface and an English option. Data lives in SQLite, in a folder of its own inside Documents. No runtime dependencies — standard library only.
 
 ![Demo](demo.gif)
 
@@ -25,6 +25,7 @@ The first run, where an empty database hands out the credentials for its adminis
 - **Colored output** — income green, expenses red, transfers cyan, with automatic fallback
 - **Two languages** — Albanian by default, English via `--gjuha en`; stored data is identical either way
 - **Exact money** — integer cents in the database, `Decimal` in the program, never a float
+- **Checks itself** — the first time it is opened, the program runs its own tests on screen and says how they went
 
 ## Install
 
@@ -38,8 +39,6 @@ This provides a `financat` command. To run without installing:
 
 ```bash
 python3 -m personal_finance
-# or, unchanged since version 1:
-python3 personal_finance_manager.py
 ```
 
 ## Usage
@@ -130,7 +129,7 @@ financat --gjuha en --balance
 
 ### Storage
 
-Everything lives in one SQLite database, `finance.db`, created on first run. Override the directory with `FINANCE_DATA_DIR` or the file itself with `--baza`.
+Everything lives in one SQLite database, `finance.db`, created on first run in `Documents\Financat\Te dhenat` — see [Where things are kept](#where-things-are-kept). Choose another folder with `FINANCE_DATA_DIR`, or the file itself with `--baza`.
 
 Money is stored as an integer count of cents rather than a float, so amounts stay exact. Dates are stored ISO-formatted so they sort and range-query correctly, and are converted to `dd-mm-yyyy` for display. Every named thing carries a normalised copy of its name for uniqueness, because SQLite's own case-insensitive collation folds only A–Z and would accept `Ë` and `ë` as different letters.
 
@@ -138,17 +137,39 @@ Foreign keys are enforced. Deleting an account or a category does not delete wha
 
 Two constraints are deliberately absent: there is no maximum amount, since any ceiling is arbitrary and would not catch a digit too many; and there is no check on an account's kind or a rule's frequency, since those lists are likely to grow while income and expense are not.
 
+### Where things are kept
+
+Everything the program writes for itself lives in one folder inside Documents, each kind in a folder of its own:
+
+```
+Documents\Financat\
+    Te dhenat\    finance.db, and the file that keeps a session signed in
+    Testet\       testet.txt — when the first-launch tests ran, and how they went
+    Gabimet\      gabimet.txt — written only if the program crashes
+```
+
+Before 3.10.0 the database sat in whichever folder the program was started from, which for a double-clicked program or a shortcut depends on how it was opened — so the data could seem to vanish. Documents is found the same way as for exports: from the shell's own record on Windows, which follows the folder into OneDrive, and from XDG on Linux. The folder names are fixed rather than translated, so changing the interface language never leaves the data behind.
+
+Files you are meant to pick up — exports, the first-run credentials, a password-reset code — go to Documents itself, where they are easy to find.
+
+| Variable | What it moves |
+|---|---|
+| `FINANCE_HOME` | the whole of `Documents\Financat` |
+| `FINANCE_DATA_DIR` | only the database |
+| `FINANCE_EXPORT_DIR` | exports and the files you are meant to pick up — never the database |
+| `FINANCE_SKIP_TESTS` | switches the first-launch tests off |
+
+**Upgrading from 3.9 or earlier.** The first time 3.10.0 runs from a folder that holds an older `finance.db`, it copies it to `Te dhenat` and says so. It is copied, never moved: the original is left exactly as it was, so nothing can be lost if the copy goes wrong — delete it yourself once you are happy. If it cannot be copied, it is used where it is. Naming the folder with `FINANCE_DATA_DIR`, or the file with `--baza`, skips all of this.
+
 ### Users
 
 One database can hold several people's finances, kept entirely separate. Every account, category, transaction, budget and rule belongs to exactly one person, and no query crosses between them.
 
-Anyone who never creates a second user sees no change at all: a database always has one, everything belongs to them, and the interface never mentions it. `--perdoruesi EMRI` switches, and menu option 17 manages them.
+Anyone who never creates a second user sees no change at all: a database always has one, everything belongs to them, and the interface never mentions it. `--perdoruesi EMRI` switches, and menu option 18 manages them.
 
 Two people can both have an account called `Banka` and a category called `Ushqim`, which is why the uniqueness constraints are per-user rather than global.
 
-**Passwords are stored but never asked for on the command line.** Whoever can run the program can also open the database file directly, so a prompt there would add friction without adding protection — the file's own permissions are the boundary. The hash exists so an account is ready for the web interface, where a password is the only thing between a stranger and someone's money.
-
-They are hashed with PBKDF2-HMAC-SHA256, a random salt per password, and the iteration count stored alongside so it can be raised later without invalidating existing passwords. Argon2 would be the better algorithm and is what this would use in production; it needs a third-party package, and this project has had no runtime dependency since version 1.
+Passwords are hashed with PBKDF2-HMAC-SHA256, a random salt per password, and the iteration count stored alongside so it can be raised later without invalidating existing passwords. Argon2 would be the better algorithm and is what this would use in production; it needs a third-party package, and this project has had no runtime dependency since version 1.
 
 Deleting a user deletes everything they own. There is no softer option: the data means nothing without them, and leaving it orphaned would be worse.
 
@@ -192,11 +213,33 @@ An administrator can also reset someone else's forgotten password, for the case 
 
 The log records whose account changed, not who changed it. SQLite triggers cannot see which user the program is acting as; the web version, which has a request behind every change, will be able to record that.
 
+### The first launch
+
+The first time a person opens the program, it checks itself before anything else: it runs its own test suite on screen, says how it went, and waits for Enter. That takes one to three minutes, and happens once — it writes down that it has run in `Documents\Financat\Testet\testet.txt`, with the date, the version and how many tests passed, failed or were skipped. Delete that file to run them again.
+
+They run only where they exist — a copy of the source with pytest installed — and only for a person at a terminal: a script, a piped command or any run with flags never waits on them. `FINANCE_SKIP_TESTS=1` switches them off.
+
+They run in a process of their own rather than inside the program. pytest takes over the standard streams while it works and, on Windows, does not hand the originals back — inside the program, the password typed at the first-run setup afterwards was shown as it was typed.
+
 ### An unclaimed database
 
 A database with nobody in it belongs to nobody. Running the program with no options starts the first-time setup; running it **with** a flag refuses, and says to open it with no options instead.
 
 That matters because the alternative is worse than it sounds: a flag that quietly created an owner would mean one `--lista` claimed an empty database with no password on it, and the generated credentials would never be handed out, because by then users existed.
+
+**A first-run code lives only while the program that showed it is open.** Leaving in any way — finishing, cancelling, Ctrl+C, a crash, closing the window — discards the code and deletes `administratori.txt`, and the next launch writes a new one. A code that outlived the program could leave a stale file, or a copy still open in an editor, showing a code that no longer works. Whatever a run killed outright leaves behind is cleared on the next launch. A run with flags leaves it all alone, since someone may be part-way through the setup in another window.
+
+A setup abandoned after the right code was typed still counts as unfinished until a name and password have been chosen — before 3.10.0 it did not, and the next run walked straight in.
+
+The file says, in Albanian and English, that the password is typed in capitals: the boxes accept only capitals and digits, so a lowercase letter does nothing at all.
+
+### When something goes wrong
+
+A double-clicked window disappears the moment the program ends, taking the reason with it. So when the program ends in failure — three wrong passwords, a cancelled or failed setup, a crash — it waits for Enter first. Leaving on purpose never waits, and neither does anything run by a script.
+
+A crash is written to `Documents\Financat\Gabimet\gabimet.txt`: when, which version, on what Python and system, and the traceback. Entries are added, never replaced. A script still sees the error raised, as before.
+
+On Windows the window is named after the program while it runs, and given its old title back afterwards.
 
 ### Accounts
 
@@ -208,7 +251,7 @@ Money moved between your own accounts is a **transfer**, not an expense. Recordi
 
 ### Categories and subcategories
 
-Both are stored records, managed from menu option 10 — view, add, rename, and delete, for categories and subcategories alike. A name typed for the first time while adding a transaction is still created automatically, so entry never stalls on defining things up front.
+Both are stored records, managed from menu option 11 — view, add, rename, and delete, for categories and subcategories alike. A name typed for the first time while adding a transaction is still created automatically, so entry never stalls on defining things up front.
 
 Renaming is one row. Transactions reference a category by id, so the rename does not touch them. Deleting a category leaves its transactions uncategorised and takes its subcategories and any budget with it; the menu says how many transactions will be affected and asks before doing it.
 
@@ -222,7 +265,7 @@ Each digraph is a letter in its own right, so every word beginning with S comes 
 
 ### Category rules
 
-A rule is a piece of text and the category to apply when a description contains it. Menu option 16 manages them.
+A rule is a piece of text and the category to apply when a description contains it. Menu option 17 manages them.
 
 ```
 STEAMGAMES    ->  Argëtim / Lojëra
@@ -285,7 +328,7 @@ The transactions and the rule updates commit in a single database transaction, s
 
 ### Importing
 
-`--importo SKEDARI` reads a CSV and shows what it contains before anything is written. Menu option 16 does the same.
+`--importo SKEDARI` reads a CSV and shows what it contains before anything is written. Menu option 19 does the same.
 
 The file's columns are matched against known header names in both languages; anything unrecognised is asked about rather than guessed at. The account is asked once at the start, since a statement comes from one account.
 
@@ -363,7 +406,7 @@ Beside each category bar is its share of the total, which is a different questio
 
 ### Change history
 
-Every create, update and delete on a transaction, account, category, subcategory, recurring rule or budget is recorded: what changed, from what, to what, and when. Menu option 16 shows recent changes or the history of one transaction; `--historia` does the same from the command line, and `--historia 3` narrows it to the third transaction.
+Every create, update and delete on a transaction, account, category, subcategory, recurring rule or budget is recorded: what changed, from what, to what, and when. Menu option 20 shows recent changes or the history of one transaction; `--historia` does the same from the command line, and `--historia 3` narrows it to the third transaction.
 
 The record is written by database triggers rather than by the application. The writes are spread across two modules and two of them are raw SQL, so a missed site would leave a silent gap in a record whose whole value is being complete — and a trigger cannot be forgotten.
 
@@ -404,6 +447,8 @@ personal_finance/
     passwords.py   Password hashing and one-time codes
     auth.py        Signing in, sessions, and password resets
     codeentry.py   Typing a one-time code into boxes
+    selftest.py    The tests the first launch runs
+    console.py     The window: its title, crashes, and being closed
     app.py         Service layer tying it together
     ui.py          Interactive prompts and menus
     cli.py         argparse entry point
@@ -428,6 +473,8 @@ ruff check . && ruff format --check .               # lint and format
 
 Tests and lint run on every push via GitHub Actions, across Linux, macOS, and Windows.
 
+The suite gives every test folders of its own and switches the first-launch tests off, so it never reads or writes a real `Documents\Financat` — or copies a real `finance.db` from the working copy it runs in.
+
 ### Recording the demo GIFs
 
 ```bash
@@ -435,9 +482,13 @@ vhs demo.tape          # requires https://github.com/charmbracelet/vhs
 vhs demo-setup.tape
 ```
 
-Both run against a temporary data directory, so real data never appears in a recording. Run them from the project folder: the second imports `demo_setup.py`.
+Both run against a temporary folder — named with `FINANCE_DATA_DIR`, `FINANCE_HOME` and `FINANCE_EXPORT_DIR` — so real data never appears in a recording. Naming the data folder also stops the program copying a `finance.db` it finds in the project folder. Run them from the project folder: the second runs `demo_setup.py`.
 
-`demo-setup.tape` records the first run. A recording types fixed keystrokes and the generated password is different every time, so `demo_setup.py` arranges a known one before the recording starts. Nothing about how the program behaves changes — it checks the password, counts the three attempts and expires the code exactly as it always does. The two password fields near the end show nothing as they are typed, which is what setting a password looks like anywhere.
+`demo-setup.tape` records the first run. A recording types fixed keystrokes and the generated password is different every time, and a code lives only while the program that showed it is open, so it cannot be arranged beforehand. Instead `financat` is defined, off camera, to run `demo_setup.py`, which runs the program itself with a known password. Nothing else about how it behaves changes — it writes the file, checks the password, counts the three attempts and expires the code exactly as it always does. The first-launch tests are switched off for it. The two password fields near the end show nothing as they are typed, which is what setting a password looks like anywhere.
+
+## Upgrading from 3.9
+
+The database moves to `Documents\Financat\Te dhenat`. The first run of 3.10.0 from the folder that holds your `finance.db` copies it there and says so; the original is left untouched, to delete yourself once you are happy. See [Where things are kept](#where-things-are-kept).
 
 ## Upgrading from version 2
 

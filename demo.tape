@@ -35,7 +35,7 @@ Hide
 Type "export FINANCE_DATA_DIR=$(mktemp -d)"
 Enter
 Sleep 500ms
-Type "export FINANCE_EXPORT_DIR=$FINANCE_DATA_DIR && clear"
+Type "export FINANCE_EXPORT_DIR=$FINANCE_DATA_DIR FINANCE_HOME=$FINANCE_DATA_DIR && clear"
 Enter
 Sleep 500ms
 

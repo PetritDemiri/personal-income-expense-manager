@@ -11,6 +11,17 @@ recurring.csv
 budgets.csv
 accounts.csv
 
+# Sign-in state and one-time codes. Since 3.10.0 these are written into
+# Documents rather than the project folder, but an older version, or
+# FINANCE_DATA_DIR pointed here, can still leave them beside the database - and
+# a session file is a working login.
+.session
+administratori.txt
+kodi-*.txt
+*.part
+testet.txt
+gabimet.txt
+
 # Exports can be named anything, so no list of filenames is enough. The repo
 # tracks no CSVs, so ignoring all of them costs nothing and stops financial
 # data reaching a commit by accident.

@@ -1061,22 +1061,26 @@ def run_first_setup(app):
     expire or the attempts run out, the account is discarded and the next run
     generates fresh ones - safe, because there is nothing in the database yet
     to lock anyone out of.
+
+    A code from an earlier run is never picked up again: whatever it left is
+    discarded first and a new code written. A code lives only while the
+    program that showed it is open, so a file still on disk - or still open in
+    an editor - can never be showing one that works.
     """
     from .auth import SETUP_ATTEMPTS, SETUP_MINUTES, ResetOutcome
     from .passwords import CODE_ALPHABET, SETUP_LENGTH
 
+    app.forget_unclaimed_setup()
+    if app.has_users:
+        # What was left kept an account that had data of its own, so there is
+        # an owner already and nothing to set up.
+        return True
+
     print(paint(f"\n{t('setup_title')}", BOLD, CYAN))
     print(t("setup_intro"))
 
-    user_id, name = app.pending_admin()
-    if user_id is None:
-        name, _password, path = app.create_admin()
-        user_id, _ = app.pending_admin()
-    else:
-        from .auth import setup_file_path
-        from .locations import documents_directory
-
-        path = setup_file_path(documents_directory())
+    name, _password, path = app.create_admin()
+    user_id, _ = app.pending_admin()
 
     print()
     print(paint(t("setup_written", path=path), BOLD, CYAN))
@@ -1399,7 +1403,6 @@ def show_users(app):
         role = t("role_admin") if user.is_admin else t("role_user")
         print(f"{index:<4}{user.name:<{w_name}}  {role:<{w_role}}  {has:<{w_pass}}{marker}")
     print("-" * total)
-    print(paint(t("password_note"), DIM))
 
 
 def add_user(app):
@@ -1436,11 +1439,10 @@ def rename_user(app):
 
 
 def set_user_password(app):
-    """Set or clear a password, for the web interface to use later."""
+    """Set or clear someone's password, which the sign-in screen then asks for."""
     user = pick_user(app)
     if user is None:
         return
-    print(paint(t("password_note"), DIM))
     password = input(t("ask_password"))
     if password in cancels():
         print(t("cancelled"))

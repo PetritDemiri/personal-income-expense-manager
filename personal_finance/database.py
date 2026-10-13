@@ -49,6 +49,48 @@ class UnknownUser(Exception):
 CENTS = Decimal("0.01")
 
 
+def carry_over(source, target):
+    """Copy a database to a new place, whole and consistent, leaving the original.
+
+    Used once, when the program moves its data from the old default location
+    to the new one. SQLite's own backup is used rather than copying the file,
+    because a database in WAL mode keeps recent changes in a second file that
+    a plain copy would leave behind. The copy is written under a temporary
+    name and only renamed into place once it is complete and checked, so an
+    interruption leaves no half-written database where the program will look.
+    The original is never touched: if anything about the move is wrong, the
+    data is still exactly where it was.
+    """
+    directory = os.path.dirname(os.path.abspath(target))
+    os.makedirs(directory, exist_ok=True)
+    partial = f"{target}.part"
+    try:
+        os.remove(partial)
+    except OSError:
+        pass
+
+    try:
+        source_connection = sqlite3.connect(source)
+        try:
+            target_connection = sqlite3.connect(partial)
+            try:
+                source_connection.backup(target_connection)
+                verdict = target_connection.execute("PRAGMA quick_check").fetchone()[0]
+            finally:
+                target_connection.close()
+        finally:
+            source_connection.close()
+        if verdict != "ok":
+            raise sqlite3.DatabaseError(verdict)
+        os.replace(partial, target)
+    except BaseException:
+        try:
+            os.remove(partial)
+        except OSError:
+            pass
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Conversion at the boundary
 # ---------------------------------------------------------------------------

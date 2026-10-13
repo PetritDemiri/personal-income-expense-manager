@@ -59,10 +59,9 @@ EXPENSE = "Shpenzime"
 TRANSFER = "Transferim"
 
 SCHEMA = f"""
--- One person's finances. The command line never asks for a password: whoever
--- can run the program can open this file directly, so a prompt would add
--- friction without adding protection. The hash is here for the web interface,
--- where it is the only thing between a stranger and someone's money.
+-- One person's finances. Someone with a password is asked for it at the
+-- sign-in screen; someone without one never is. Whoever holds this file can
+-- still open it directly - the file's own permissions are that boundary.
 CREATE TABLE users (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     name           TEXT    NOT NULL,

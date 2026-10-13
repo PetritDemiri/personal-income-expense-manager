@@ -1,7 +1,7 @@
 """Hyrja / Authentication.
 
 Sessions and password resets. The command line asks for a password only from a
-users who has set one, so a single-person installation never sees any of this.
+user who has set one, so a single-person installation never sees any of this.
 
 What this is for, stated plainly: on a shared machine it keeps one person from
 casually reading another's finances. It is not protection against someone with
@@ -17,6 +17,7 @@ window is never prompted.
 
 import datetime
 import os
+import sqlite3
 import stat
 
 from .models import name_key
@@ -83,6 +84,12 @@ SETUP_MINUTES = 5
 SETUP_ATTEMPTS = 3
 
 
+# Written into the credentials file in both languages, since the file is read
+# before anyone has chosen one.
+UPPERCASE_WARNING_SQ = "Kujdes: fjalekalimi duhet te shkruhet i gjithi me shkronja te medha."
+UPPERCASE_WARNING_EN = "Warning: the password should be typed in all uppercase letters."
+
+
 def setup_file_path(directory):
     return os.path.join(directory, "administratori.txt")
 
@@ -129,7 +136,12 @@ def create_admin(db, directory):
         handle.write(
             f"{name}\n{format_code(password)}\n\n"
             f"Ky fjalekalim skadon pas {SETUP_MINUTES} minutash.\n"
-            f"This password expires in {SETUP_MINUTES} minutes.\n"
+            f"This password expires in {SETUP_MINUTES} minutes.\n\n"
+            # The boxes it is typed into accept only capitals and digits, so a
+            # lowercase letter does nothing at all - which looks, to someone
+            # who does not know that, like the program has frozen.
+            f"{UPPERCASE_WARNING_SQ}\n"
+            f"{UPPERCASE_WARNING_EN}\n"
         )
     _own_only(path)
     return name, password, path
@@ -148,6 +160,103 @@ def discard_setup(db):
         return
     with db.connection as conn:
         conn.execute("DELETE FROM users WHERE id = ?", (row["user_id"],))
+
+
+def unclaimed_admins(connection):
+    """Generated administrators nobody has finished claiming.
+
+    Counted by the setup row that complete_setup removes, rather than by
+    whether the code has been typed: a setup abandoned after the right code
+    but before a name and password were chosen leaves an administrator with no
+    password on it, and that is no more claimed than one whose code was never
+    typed at all. A user with a password is never counted, whatever else is
+    true of it.
+    """
+    rows = connection.execute(
+        "SELECT DISTINCT s.user_id FROM admin_setup s JOIN users u ON u.id = s.user_id "
+        "WHERE u.password_hash IS NULL"
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+def forget_setup(connection, directory):
+    """Discard any first-run code nobody claimed, and delete its file.
+
+    A code lives only while the program that showed it is open. Keeping one
+    until it expired let closing and reopening leave a stale file - or a copy
+    of it still open in an editor - showing a code that no longer worked; and
+    a setup abandoned halfway left an administrator with no password, which
+    every later run walked straight into. Run when the program closes, and
+    again before a setup starts, so a run that was killed outright cannot
+    leave anything usable behind either.
+
+    The file is removed whether or not a code was pending: once the program
+    has closed, no copy of it is ever the right one to read.
+    """
+    with connection:
+        for user_id in unclaimed_admins(connection):
+            # Removed explicitly as well as by the cascade, which depends on a
+            # pragma that every new connection starts with switched off.
+            connection.execute("DELETE FROM admin_setup WHERE user_id = ?", (user_id,))
+            # Before 3.10.0 a setup abandoned after the right code let the
+            # next run straight in as this administrator, and someone may have
+            # used it since. Their data is kept, and the account with it; only
+            # the stale code goes. An account that owns nothing is just the
+            # unfinished setup, and is removed so the next one starts clean.
+            if not owns_anything(connection, user_id):
+                connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    try:
+        os.unlink(setup_file_path(directory))
+    except OSError:
+        pass
+
+
+# Tables that hold the sign-in machinery and the log of changes rather than
+# anything a person made. Every other table with a user_id is that person's
+# own, including any added later - the safe default for a check whose other
+# answer is deleting an account.
+_NOT_BELONGINGS = frozenset({"admin_setup", "audit_log", "password_resets", "sessions"})
+
+
+def owns_anything(connection, user_id):
+    """Whether a user has any data of their own - an account, a transaction..."""
+    tables = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    for (table,) in tables:
+        if table in _NOT_BELONGINGS:
+            continue
+        columns = [row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')]
+        if "user_id" not in columns:
+            continue
+        found = connection.execute(
+            f'SELECT 1 FROM "{table}" WHERE user_id = ? LIMIT 1', (user_id,)
+        ).fetchone()
+        if found:
+            return True
+    return False
+
+
+def forget_setup_at(database_path, directory):
+    """forget_setup through a connection of its own.
+
+    For the window being closed on Windows, where the cleanup runs on a thread
+    of its own and the program's connection cannot be used from there. Any
+    failure is swallowed: the window is going either way, and the next launch
+    clears whatever this could not.
+    """
+    try:
+        if os.path.exists(database_path):
+            connection = sqlite3.connect(database_path, timeout=3)
+            try:
+                connection.execute("PRAGMA foreign_keys = ON")
+                forget_setup(connection, directory)
+            finally:
+                connection.close()
+        else:
+            os.unlink(setup_file_path(directory))
+    except (sqlite3.Error, OSError):
+        pass
 
 
 def check_setup_password(db, typed):

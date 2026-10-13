@@ -10,6 +10,27 @@ from personal_finance.models import BANK, CASH, Account, Transaction
 from personal_finance.schema import EXPENSE, INCOME
 
 
+@pytest.fixture(autouse=True)
+def own_folders(tmp_path_factory, monkeypatch):
+    """Every test gets folders of its own, whatever it forgets to set.
+
+    The program's defaults are the real Documents\\Financat and, for an
+    installation older than 3.10.0, a finance.db in the current folder - which,
+    when the tests run from a working copy, is exactly where a real one lives.
+    A test that wants a default back deletes the variable itself.
+
+    The first-launch tests are switched off too: the suite must never start
+    itself.
+    """
+    home = tmp_path_factory.mktemp("financat")
+    documents = home / "Documents"
+    documents.mkdir()
+    monkeypatch.setenv("FINANCE_HOME", str(home))
+    monkeypatch.setenv("FINANCE_DATA_DIR", str(home / "Te dhenat"))
+    monkeypatch.setenv("FINANCE_EXPORT_DIR", str(documents))
+    monkeypatch.setenv("FINANCE_SKIP_TESTS", "1")
+
+
 @pytest.fixture
 def db(tmp_path):
     """An empty database in a temporary directory, never the real one."""

@@ -87,8 +87,17 @@ def generate_code():
 
 
 def generate_setup_password():
-    """The password generated for a brand-new database's administrator."""
-    return "".join(secrets.choice(CODE_ALPHABET) for _ in range(SETUP_LENGTH))
+    """The password generated for a brand-new database's administrator.
+
+    Drawn again until it contains a digit. One in thirty-six drawn from this
+    alphabet had none, so it broke the password rules it is meant to satisfy -
+    and the test saying it never does failed at random. Drawing again rather
+    than forcing a digit into place keeps every valid password equally likely.
+    """
+    while True:
+        candidate = "".join(secrets.choice(CODE_ALPHABET) for _ in range(SETUP_LENGTH))
+        if any(character.isdigit() for character in candidate):
+            return candidate
 
 
 def admin_name(taken=()):

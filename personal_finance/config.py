@@ -44,9 +44,12 @@ LEGACY_TYPE_ALIASES = {
 # ---------------------------------------------------------------------------
 # Data files
 # ---------------------------------------------------------------------------
-# The directory can be overridden with FINANCE_DATA_DIR, which keeps the tests
-# (and any future multi-profile support) away from real data.
-DATA_DIR = os.environ.get("FINANCE_DATA_DIR", ".")
+# The database lives in Documents\Financat\Te dhenat. Every version before
+# 3.10.0 kept it in whichever folder the program was started from, which for a
+# double-clicked program or a shortcut depends on how it was opened - so the
+# data could seem to vanish. FINANCE_DATA_DIR still overrides it, which is how
+# the tests and the demo recordings stay away from anyone's real data.
+DATA_DIR_ENV = "FINANCE_DATA_DIR"
 
 DATABASE_FILE = "finance.db"
 
@@ -56,9 +59,19 @@ BUDGETS_FILE = "budgets.csv"
 ACCOUNTS_FILE = "accounts.csv"
 
 
+def data_directory():
+    """Where the database is kept: FINANCE_DATA_DIR, or Documents\\Financat\\Te dhenat."""
+    override = os.environ.get(DATA_DIR_ENV)
+    if override:
+        return override
+    from .locations import DATA_FOLDER, app_subdirectory
+
+    return app_subdirectory(DATA_FOLDER)
+
+
 def data_path(filename):
     """Full path to a data file inside the configured data directory."""
-    return os.path.join(os.environ.get("FINANCE_DATA_DIR", DATA_DIR), filename)
+    return os.path.join(data_directory(), filename)
 
 
 # ---------------------------------------------------------------------------
