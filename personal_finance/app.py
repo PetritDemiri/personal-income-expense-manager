@@ -126,15 +126,62 @@ class FinanceApp:
 
         Naming rather than referencing is deliberate: a category typed for the
         first time is created here, so entry never stalls on defining things
-        up front.
+        up front. It is created in the same database transaction as the row
+        that uses it, so a failed write leaves no category behind either.
         """
+        with self.db.atomic() as connection:
+            transaction = self._new_transaction(
+                kind,
+                description,
+                amount,
+                occurred_on,
+                category,
+                subcategory,
+                account_id,
+                to_account_id,
+            )
+            self.db.add_transaction(transaction, connection=connection)
+        return transaction
+
+    def add_transactions(self, kind, entries):
+        """Create several transactions of one kind: every one of them, or none.
+
+        Each entry is a mapping of what add_transaction takes after the kind -
+        description, amount, occurred_on, and optionally category, subcategory
+        and account_id. Written in one database transaction, so a failure
+        part-way leaves nothing behind, not even a category created on the way:
+        a half-saved batch would leave the user unable to tell what had landed,
+        and entering it again would double whatever had.
+        """
+        created = []
+        with self.db.atomic() as connection:
+            for entry in entries:
+                transaction = self._new_transaction(kind, **entry)
+                self.db.add_transaction(transaction, connection=connection)
+                created.append(transaction)
+        return created
+
+    def _new_transaction(
+        self,
+        kind,
+        description,
+        amount,
+        occurred_on,
+        category=None,
+        subcategory=None,
+        account_id=None,
+        to_account_id=None,
+    ):
+        """A Transaction ready to insert, its category and subcategory created
+        if they do not exist yet. Called inside atomic(), so they are undone
+        with the rest if the insert fails."""
         category_id = self.db.ensure_category(category, kind) if category else None
         subcategory_id = (
             self.db.ensure_subcategory(subcategory, category_id)
             if subcategory and category_id
             else None
         )
-        transaction = Transaction(
+        return Transaction(
             kind=kind,
             description=description,
             amount=amount,
@@ -144,8 +191,6 @@ class FinanceApp:
             account_id=account_id,
             to_account_id=to_account_id,
         )
-        self.db.add_transaction(transaction)
-        return transaction
 
     def update_transaction(self, transaction_id, **fields):
         """Change one transaction. Names are resolved to ids first."""
@@ -542,6 +587,26 @@ class FinanceApp:
             self.db.transactions(),
             transaction,
         )
+
+    def budget_warnings(self, transactions):
+        """Every budget worth warning about after adding these, each once.
+
+        Two rows of a batch in the same budgeted category and month would
+        otherwise each repeat the same warning about the same total.
+        """
+        from .dates import month_of, parse_date
+
+        warnings, seen = [], set()
+        for transaction in transactions:
+            status = self.budget_warning(transaction)
+            if status is None:
+                continue
+            key = (transaction.category_id, month_of(parse_date(transaction.occurred_on)))
+            if key in seen:
+                continue
+            seen.add(key)
+            warnings.append(status)
+        return warnings
 
     # -- history -----------------------------------------------------------
 

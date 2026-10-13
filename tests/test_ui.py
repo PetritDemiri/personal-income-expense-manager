@@ -18,7 +18,7 @@ from personal_finance.models import BANK, CASH
 from personal_finance.schema import EXPENSE, INCOME, TRANSFER
 from personal_finance.ui import (
     add_recurring,
-    add_transaction,
+    add_transactions,
     add_transfer,
     delete_transaction,
     edit_transaction,
@@ -223,36 +223,36 @@ class TestInteractiveFlowsAskForAnAccount:
     def test_add_asks_when_an_account_exists(self, app, answers, capsys):
         app.add_account("Petrit", CASH, Decimal("0"))
         capsys.readouterr()
-        # description, amount, today, category, subcategory, account
-        answers("Paga", "50", "po", "Paga", "", "1")
-        add_transaction(app, INCOME)
+        # how many, description, amount, today, category, subcategory, account
+        answers("1", "Paga", "50", "po", "Paga", "", "1")
+        add_transactions(app, INCOME)
         assert app.transactions()[-1].account == "Petrit"
 
     def test_add_does_not_ask_without_accounts(self, app, answers):
         # No account answer supplied: an extra prompt would raise.
-        answers("Paga", "50", "po", "Paga", "")
-        add_transaction(app, INCOME)
+        answers("1", "Paga", "50", "po", "Paga", "")
+        add_transactions(app, INCOME)
         assert app.transactions()[-1].account_id is None
 
     def test_expense_flow_also_asks(self, app, answers, capsys):
         app.add_account("Petrit", CASH, Decimal("0"))
         capsys.readouterr()
-        answers("Qera", "300", "po", "Qera", "", "1")
-        add_transaction(app, EXPENSE)
+        answers("1", "Qera", "300", "po", "Qera", "", "1")
+        add_transactions(app, EXPENSE)
         assert app.transactions()[-1].account == "Petrit"
 
     def test_the_account_can_be_skipped(self, app, answers, capsys):
         app.add_account("Petrit", CASH, Decimal("0"))
         capsys.readouterr()
-        answers("Paga", "50", "po", "Paga", "", "")
-        add_transaction(app, INCOME)
+        answers("1", "Paga", "50", "po", "Paga", "", "")
+        add_transactions(app, INCOME)
         assert app.transactions()[-1].account_id is None
 
     def test_nothing_is_left_unassigned(self, app, answers, capsys):
         app.add_account("Petrit", CASH, Decimal("0"))
         capsys.readouterr()
-        answers("Paga", "50", "po", "Paga", "", "1")
-        add_transaction(app, INCOME)
+        answers("1", "Paga", "50", "po", "Paga", "", "1")
+        add_transactions(app, INCOME)
         assert count_unassigned(app.transactions(), app.recurring_rules()) == 0
 
     def test_a_recurring_rule_asks_too(self, app, answers, capsys):
@@ -662,8 +662,8 @@ class TestRuleSuggestionOnManualEntry:
         app.add_category_rule("STEAM", "Argëtim", EXPENSE)
         capsys.readouterr()
 
-        answers("E-commerce 0STEAMGAMES.CO", "50", "po", "Argëtim", "")
-        add_transaction(app, EXPENSE)
+        answers("1", "E-commerce 0STEAMGAMES.CO", "50", "po", "Argëtim", "")
+        add_transactions(app, EXPENSE)
         output = capsys.readouterr().out
         assert "Sugjerim" in output
         assert app.transactions()[-1].category == "Argëtim"

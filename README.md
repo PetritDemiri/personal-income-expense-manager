@@ -14,7 +14,7 @@ The first run, where an empty database hands out the credentials for its adminis
 
 ## Features
 
-- **Transactions** — add, edit in place, and delete income and expense entries
+- **Transactions** — add income and expense entries one or several at a time, edit them in place, and delete them
 - **Categories and subcategories** — stored as real records with foreign keys, created on first use, sorted in Albanian alphabetical order with the catch-all last
 - **Accounts** — optional cash, bank, and card accounts with opening balances, per-account and combined totals, and transfers between them
 - **Budgets** — monthly spending limits per category, warning at the moment you overspend
@@ -70,6 +70,8 @@ Running with no flags opens the interactive menu:
 | 21 | Mbyll sesionin | Sign out |
 
 Dates use `dd-mm-yyyy`. When editing, each prompt shows the current value in brackets — press Enter to keep it.
+
+Options 1 and 2 first ask how many to add — see [Adding several at once](#adding-several-at-once).
 
 ### Command-line flags
 
@@ -287,9 +289,48 @@ Before a rule is saved, the program says how many existing transactions it would
 
 Deleting a category deletes its rules with it, since a rule pointing at nothing would stop working without saying so.
 
+### Adding several at once
+
+Adding income or expenses starts by asking how many:
+
+```
+Duke shtuar Te Ardhura...
+  (Shkruani 'anulo' per t'u kthyer)
+  (Shtypni Enter nese nuk e dini sa)
+Sa te ardhura doni te shtoni? 2
+
+Te Ardhura 1 nga 2
+Vendosni pershkrimin: Paga e tetorit
+...
+```
+
+Each one is then asked for exactly as a single one is, under a heading that says which it is. **From the second on, the date, category, subcategory and account of the one before are offered in brackets**, so Enter keeps them — several entered together are usually from the same day, the same shop, the same account. The description and the amount are always asked afresh. A subcategory is offered only under the same category, since it means nothing under another. A category carried over is only a default, so a rule matching the new description is still suggested beside it.
+
+Pressing Enter instead of a number means you don't know yet: after each one the program asks `Te shtoni edhe nje? (po/jo)`. Typing `1` is exactly what adding always was.
+
+**Several are shown as a list before anything is saved:**
+
+```
+Te ardhurat qe do te shtohen:
+--------------------------------------------------------
+# Data       Lloji      Pershkrimi     Kategoria   Shuma
+--------------------------------------------------------
+1 14-10-2026 Te Ardhura Paga e tetorit Paga      €650.00
+2 14-10-2026 Te Ardhura Bonus          Paga       €80.00
+--------------------------------------------------------
+
+Komandat:
+  ndrysho 2   ndrysho rreshtin 2
+  fshi 2      hiq rreshtin 2
+  ruaj        ruaj te gjitha
+  anulo       dil pa ruajtur asgje
+```
+
+`ndrysho` asks a row's questions again with its values in brackets; `fshi` takes rows out, and accepts several the way rows are chosen anywhere else. As at the import preview, the commands work in either language. **Then they are saved together — every one of them, or none**, in one database transaction: a half-saved batch would leave you unable to tell what had landed, and entering it again would double whatever had. A budget the batch takes near or over its limit is warned about once, not once per row.
+
 ### Asking questions
 
-Adding or editing a transaction asks one question at a time. **Cancelling at any question steps back to the one before**, keeping the answers already given; cancelling at the first abandons the task. A task six questions long should not throw away five correct answers to fix the sixth.
+Every task that asks several questions — adding or editing a transaction, a transfer, a budget, a rule, a recurring transaction — asks them one at a time. **Cancelling at any question steps back to the one before**, keeping the answers already given; cancelling at the first abandons the task. A task six questions long should not throw away five correct answers to fix the sixth. When editing, going back offers the answer just given, so looking does not undo it. When adding several, stepping back from the first question of one goes to the last question of the one before.
 
 Every prompt states what it accepts — typing your own value, pressing Enter to skip, or cancelling — so nothing has to be remembered from one stage to the next. Cancelling is stated once when a task starts.
 

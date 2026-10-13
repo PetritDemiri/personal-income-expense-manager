@@ -394,6 +394,29 @@ class TestCommit:
 
         assert app.count() == 0
 
+    def test_a_failure_after_a_new_category_writes_nothing_either(self, app, monkeypatch):
+        """Creating a category used to commit everything written before it, so
+        a failure later on kept the first rows - and the category."""
+        real = type(app.db).add_transaction
+        calls = {"n": 0}
+
+        def flaky(self, transaction, connection=None):
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise RuntimeError("disk full")
+            return real(self, transaction, connection=connection)
+
+        monkeypatch.setattr(type(app.db), "add_transaction", flaky)
+        with pytest.raises(RuntimeError):
+            commit(
+                app,
+                [self.make("A"), self.make("B", category="Krejt e re"), self.make("C")],
+            )
+        monkeypatch.undo()
+
+        assert app.count() == 0
+        assert app.categories(EXPENSE) == []
+
     def test_an_imported_transfer_keeps_its_type(self, app):
         commit(app, [self.make("Deponim", "15.00", kind=TRANSFER)])
         assert app.transactions()[0].kind == TRANSFER

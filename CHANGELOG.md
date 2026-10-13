@@ -5,10 +5,68 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Twenty-two versions are recorded below. Twenty-one of them were released;
+Twenty-three versions are recorded below. Twenty-two of them were released;
 2.0.0 was a development phase whose work shipped as part of 2.1.0, and it is
 documented here because it is a distinct stage in the project's history. Commit
 hashes are given so each entry can be traced back to the code.
+
+## [3.11.0] — 2026-10-14
+
+Adding several income or expense entries in one go - and the cancel word,
+which crashed the program on most of the screens that ask more than one
+question.
+
+### Added
+
+- Adding income or expenses starts by asking how many. Each is then asked for
+  exactly as a single one is, under a heading that says which it is - "Te
+  Ardhura 2 nga 3". From the second on, the date, category, subcategory and
+  account of the one before are offered in brackets, so Enter keeps them; the
+  description and the amount are always asked afresh. A subcategory is offered
+  only under the same category, and a rule matching the new description is
+  still suggested beside a carried category, which is only a default.
+- Pressing Enter instead of a number means not knowing yet: after each one the
+  program asks whether there is another. Typing 1 is exactly what adding
+  always was - no heading and no list.
+- Several are shown as a list before anything is saved. `ndrysho 2` asks a
+  row's questions again with its values in brackets, `fshi 2` takes rows out -
+  several at once, the way rows are chosen anywhere else - `ruaj` saves and
+  `anulo` leaves without saving anything. The commands work in either
+  language, as at the import preview.
+- They are saved together, in one database transaction: every one of them or
+  none. A budget the batch takes near or over its limit is warned about once,
+  not once per row.
+
+### Changed
+
+- Cancelling steps back one question across entries too: from the first
+  question of one to the last question of the one before, with its heading
+  shown again so it is clear which one an answer belongs to. From the first
+  question of the first, it goes back to how many.
+- Editing a transaction, adding a transfer, a rule, a budget and a recurring
+  transaction ask their questions the way adding does: cancelling steps back
+  one question, and is said once when the task starts. When editing, going
+  back offers the answer just given, so looking does not undo it.
+
+### Fixed
+
+- Typing `anulo` crashed the program when editing a transaction, adding a
+  transfer, assigning transactions to an account, adding a rule, a budget or a
+  recurring transaction, after `k 3` at the import preview, and at the
+  import's question of which account. Since 3.9.0 the shared questions answer
+  the cancel word with a step back rather than a value; only adding income and
+  expenses understood it, and every other screen passed it on as if it were an
+  answer. Each now steps back, or cancels where the question is the only one.
+- An import that failed part-way kept every row written before the first new
+  category it created - and the category - instead of nothing: creating the
+  category committed everything written so far. Writes inside a database
+  transaction now leave the committing to it, so an import is all or nothing
+  as it always promised. A single transaction with a new category is written
+  the same way, so a failure leaves no category behind either.
+
+### Notes
+
+- 1411 tests, up from 1270.
 
 ## [3.10.0] — 2026-10-13
 

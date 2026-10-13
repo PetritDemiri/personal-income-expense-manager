@@ -46,7 +46,7 @@ from .display import (
     print_transactions,
 )
 from .i18n import affirmatives, cancels, frequency_label, negatives, t, type_label
-from .models import ACCOUNT_KINDS, parse_amount, valid_name
+from .models import ACCOUNT_KINDS, TransactionView, parse_amount, valid_name
 from .passwords import CODE_ALPHABET, CODE_LENGTH
 from .recurring import FREQUENCIES
 from .reports import calculate_totals, month_report, sort_by_date
@@ -212,16 +212,25 @@ def prompt_date(current=None):
         print(paint(t("invalid_date"), RED))
 
 
-def prompt_kind(current=None):
+def prompt_kind(current=None, can_go_back=False):
+    """Ask whether something is income or an expense.
+
+    Cancelling is honoured only where the caller can step back from it - a
+    task asked one question at a time. Elsewhere the cancel word is refused
+    like any other wrong answer, as it always was.
+    """
     while True:
         print(f"  1. {type_label(INCOME)}")
         print(f"  2. {type_label(EXPENSE)}")
         if current is None:
-            raw = input(t("choose_type")).strip()
+            typed = input(t("choose_type"))
         else:
-            raw = input(t("type_prompt_keep", current=type_label(current))).strip()
-            if not raw:
-                return current
+            typed = input(t("type_prompt_keep", current=type_label(current)))
+        if can_go_back and typed in cancels():
+            return BACK
+        raw = typed.strip()
+        if current is not None and not raw:
+            return current
         if raw == "1":
             return INCOME
         if raw == "2":
@@ -229,7 +238,7 @@ def prompt_kind(current=None):
         print(paint(t("invalid_type"), RED))
 
 
-def prompt_category(app, kind, current=None, description=None):
+def prompt_category(app, kind, current=None, description=None, carried=False):
     """Ask for a category, offering the ones already defined.
 
     A name typed here that does not exist yet is created when the transaction
@@ -239,10 +248,15 @@ def prompt_category(app, kind, current=None, description=None):
     than filled in. Pre-filling would let a rule written weeks ago decide the
     category on an unread Enter; during an import the preview catches that,
     but a single entry has no preview to catch it.
+
+    A carried value - the category of the transaction entered just before -
+    is only a default, not something this transaction already has, so a rule
+    that disagrees with it is still shown. Editing shows none: the value there
+    is the transaction's own.
     """
-    if description and current is None:
+    if description and (current is None or carried):
         rule = app.rule_for(description)
-        if rule is not None:
+        if rule is not None and not (carried and rule.category == current):
             shown = rule.category + (f" / {rule.subcategory}" if rule.subcategory else "")
             print(paint(t("rule_suggestion", category=shown), DIM))
 
@@ -440,45 +454,341 @@ def show_balance(app):
         print_accounts(balances_for(app.accounts(), rows))
 
 
-def add_transaction(app, kind):
-    """Ask for a transaction one question at a time, and write it.
+# ---------------------------------------------------------------------------
+# Adding income and expenses
+# ---------------------------------------------------------------------------
 
-    Cancelling at any question steps back to the one before rather than
-    throwing the lot away; cancelling at the first abandons the whole thing.
-    Six questions in, losing five correct answers to fix the sixth would be
-    its own kind of rudeness.
+# More than anyone types in one sitting. The limit only stops a slip of the
+# finger - 200 for 2 - from turning into a heading that reads "1 of 200".
+MOST_AT_ONCE = 100
+
+# Words typed at the list shown before saving, in either language, as at the
+# import preview. Cancelling is the interface language's own word.
+EDIT_WORDS = ("ndrysho", "edit")
+REMOVE_WORDS = ("fshi", "delete")
+SAVE_WORDS = ("ruaj", "save")
+REVIEW_COMMAND_KEYS = (
+    "review_cmd_edit",
+    "review_cmd_remove",
+    "review_cmd_save",
+    "review_cmd_cancel",
+)
+
+# The name the "one more?" answer is kept under while an entry is being asked.
+ANOTHER = "another"
+
+
+def add_transactions(app, kind):
+    """Add income or expenses - first asking how many.
+
+    Each one is asked for exactly as a single one always was, one question at
+    a time. Cancelling steps back one question, across entries too, and
+    cancelling the question of how many abandons the task. Several are shown
+    as a list before anything is saved, where a row can be changed or taken
+    out; then they are saved together, all of them or none. One is saved
+    straight away, as before - a list of one would only be a question more.
     """
     print(paint(f"\n{t('adding', type=type_label(kind))}", BOLD))
+    hint("hint_cancel")
+
+    while True:
+        count = prompt_how_many(kind)
+        if count is BACK:
+            print(t("cancelled"))
+            return
+        entries = ask_entries(app, kind, count)
+        if entries is not None:
+            break
+
+    if len(entries) > 1:
+        entries = review_entries(app, kind, entries)
+        if entries is None:
+            return
+    save_entries(app, kind, entries)
+
+
+def prompt_how_many(kind):
+    """How many to add. A number, None when the person does not know yet, or BACK."""
+    hint("hint_how_many")
+    question = "ask_how_many_income" if kind == INCOME else "ask_how_many_expense"
+    while True:
+        typed = input(t(question))
+        if typed in cancels():
+            return BACK
+        if typed == "":
+            return None
+        number = typed.strip()
+        if re.fullmatch(r"[0-9]+", number) and 1 <= int(number) <= MOST_AT_ONCE:
+            return int(number)
+        print(paint(t("invalid_how_many", high=MOST_AT_ONCE), RED))
+
+
+def prompt_another():
+    """Whether to add one more, when how many was not said. True, False or BACK."""
+    print()
+    while True:
+        typed = input(t("ask_another"))
+        if typed in cancels():
+            return BACK
+        if typed in affirmatives():
+            return True
+        if typed in negatives():
+            return False
+        print(paint(t("yes_no_only"), RED))
+
+
+def entry_stages(app, kind, previous=None):
+    """The questions for one transaction.
+
+    From the second on, the date, category, subcategory and account of the one
+    before are offered in brackets, so Enter keeps them: several entered
+    together are usually from the same day, the same shop, the same account.
+    The description and the amount are always asked afresh.
+    """
+    carried = previous or {}
+
+    def subcategory(answers):
+        # Offered only under the same category, since a subcategory belongs to
+        # its category and means nothing under another.
+        category = answers["category"]
+        same = category is not None and category == carried.get("category")
+        kept = carried.get("subcategory") if same else None
+        return prompt_subcategory(app, kind, category, current=kept)
 
     stages = [
         ("description", lambda _v: prompt_description()),
         ("amount", lambda _v: prompt_amount()),
-        ("occurred_on", lambda _v: prompt_date()),
+        ("occurred_on", lambda _v: prompt_date(current=carried.get("occurred_on"))),
         (
             "category",
-            lambda v: prompt_category(app, kind, description=v["description"]),
+            lambda v: prompt_category(
+                app,
+                kind,
+                current=carried.get("category"),
+                description=v["description"],
+                carried=previous is not None,
+            ),
         ),
-        ("subcategory", lambda v: prompt_subcategory(app, kind, v["category"])),
+        ("subcategory", subcategory),
     ]
     if app.has_accounts():
-        stages.append(("account_id", lambda _v: prompt_account(app)))
+        stages.append(
+            ("account_id", lambda _v: prompt_account(app, current=carried.get("account_id")))
+        )
+    return stages
 
-    answers = run_stages(stages)
+
+def entry_heading(kind, number, count):
+    """'Te Ardhura 2 nga 3', or 'Te Ardhura 2' when how many was not said."""
+    if count is None:
+        return t("entry_open", type=type_label(kind), number=number)
+    return t("entry_of", type=type_label(kind), number=number, count=count)
+
+
+def ask_entries(app, kind, count):
+    """Ask for `count` transactions, or for as many as wanted when count is None.
+
+    Returns their answers in order, or None when the person stepped back past
+    the first question of the first one. Stepping back from the first question
+    of an entry goes to the last question of the one before - the question
+    actually asked before it - so a mistake there is still within reach. The
+    heading is shown again whenever the entry being asked changes, so it is
+    always clear which one an answer belongs to.
+    """
+    entries = []
+    answers = {}
+    index = 0
+    shown = None
+
+    while True:
+        stages = entry_stages(app, kind, entries[-1] if entries else None)
+        if count is None:
+            stages.append((ANOTHER, lambda _v: prompt_another()))
+
+        number = len(entries) + 1
+        if shown != number:
+            if count == 1:
+                print()
+            else:
+                print(paint(f"\n{entry_heading(kind, number, count)}", BOLD))
+            shown = number
+
+        name, ask = stages[index]
+        answer = ask(answers)
+        if answer is BACK:
+            if index > 0:
+                index -= 1
+            elif entries:
+                answers = entries.pop()
+                index = len(stages) - 1
+            else:
+                return None
+            continue
+
+        answers[name] = answer
+        index += 1
+        if index < len(stages):
+            continue
+
+        entries.append(answers)
+        answers, index = {}, 0
+        if len(entries) == count or entries[-1].get(ANOTHER) is False:
+            break
+
+    return [{k: v for k, v in entry.items() if k != ANOTHER} for entry in entries]
+
+
+def review_entries(app, kind, entries):
+    """Show what is about to be added, and let it be corrected first.
+
+    Returns the entries to save, or None when nothing is to be saved -
+    cancelled, or every row taken out. Nothing touches the database here.
+    """
+    entries = list(entries)
+    while True:
+        print_entries(app, kind, entries)
+        print()
+        print(paint(t("review_commands"), DIM))
+        for key in REVIEW_COMMAND_KEYS:
+            print(paint(t(key), DIM))
+
+        print()
+        typed = input(t("review_choose"))
+        if typed in cancels():
+            print(t("cancelled"))
+            return None
+        choice = typed.strip()
+        if choice in SAVE_WORDS:
+            return entries
+
+        word, _, rest = choice.partition(" ")
+        rest = rest.strip()
+        if word in EDIT_WORDS and rest:
+            position = row_number(rest, len(entries))
+            if position is None:
+                print(paint(t("review_no_row", high=len(entries)), RED))
+                continue
+            changed = change_entry(app, kind, entries[position - 1], position)
+            if changed is not None:
+                entries[position - 1] = changed
+            continue
+
+        if word in REMOVE_WORDS and rest:
+            positions = parse_positions(rest, len(entries))
+            if positions is None:
+                print(paint(t("review_no_row", high=len(entries)), RED))
+                continue
+            entries = [e for n, e in enumerate(entries, start=1) if n not in positions]
+            if not entries:
+                print(paint(t("review_empty"), YELLOW))
+                return None
+            continue
+
+        print(paint(t("review_invalid"), RED))
+
+
+def row_number(typed, count):
+    """The one row named, or None. Digits only, within 1..count."""
+    if re.fullmatch(r"[0-9]+", typed) and 1 <= int(typed) <= count:
+        return int(typed)
+    return None
+
+
+def print_entries(app, kind, entries):
+    """The entries not yet saved, in the same table as saved transactions."""
+    names = {account.id: account.name for account in app.accounts()}
+    rows = [
+        (
+            number,
+            TransactionView(
+                id=0,
+                kind=kind,
+                description=entry["description"],
+                amount=entry["amount"],
+                occurred_on=entry["occurred_on"],
+                category=entry.get("category"),
+                subcategory=entry.get("subcategory"),
+                account_id=entry.get("account_id"),
+                account=names.get(entry.get("account_id")),
+            ),
+        )
+        for number, entry in enumerate(entries, start=1)
+    ]
+    title = "review_income" if kind == INCOME else "review_expense"
+    print_transactions(rows, title=t(title))
+
+
+def change_entry(app, kind, entry, position):
+    """Ask for a row of the list again, offering what it holds. None if cancelled."""
+    print(paint(f"\n{t('review_editing', number=position)}", BOLD))
+    print(paint(t("press_enter_keep"), DIM))
+    answers = run_stages(change_stages(app, dict(entry, kind=kind)))
     if answers is None:
         print(t("cancelled"))
+        return None
+    return answers
+
+
+def save_entries(app, kind, entries):
+    """Write what was entered and say so - with any budget it took near or over."""
+    if len(entries) == 1:
+        transaction = app.add_transaction(kind, **entries[0])
+        print(paint(t("added", type=type_label(kind)), BOLD))
+        print_budget_warning(app.budget_warning(transaction))
         return
 
-    transaction = app.add_transaction(
-        kind,
-        answers["description"],
-        answers["amount"],
-        answers["occurred_on"],
-        answers["category"],
-        answers["subcategory"],
-        answers.get("account_id"),
-    )
-    print(paint(t("added", type=type_label(kind)), BOLD))
-    print_budget_warning(app.budget_warning(transaction))
+    saved = app.add_transactions(kind, entries)
+    message = "added_several_income" if kind == INCOME else "added_several_expense"
+    print(paint(t(message, count=len(saved)), BOLD))
+    for status in app.budget_warnings(saved):
+        print_budget_warning(status)
+
+
+# ---------------------------------------------------------------------------
+# Editing
+# ---------------------------------------------------------------------------
+
+
+def change_stages(app, current, ask_kind=False):
+    """The questions for changing something already entered, each offering
+    what it holds now, so Enter keeps it.
+
+    `current` holds the values by name, kind included. A saved transaction can
+    change its type too; a row of the list being added keeps the type of the
+    menu it came from. Stepping back offers the answer just given rather than
+    the original, so going back to look does not undo it.
+    """
+
+    def kind_of(answers):
+        return answers.get("kind", current["kind"])
+
+    def ask_type(_answers):
+        print(f"\n{t('field_type')}:")
+        return prompt_kind(current=current["kind"], can_go_back=True)
+
+    def subcategory(answers):
+        # Asked fresh when the category changed, since the old subcategory
+        # belonged to the old category and means nothing under the new one.
+        if answers["category"] == current.get("category"):
+            kept = answers.get("subcategory", current.get("subcategory"))
+        else:
+            kept = None
+        return prompt_subcategory(app, kind_of(answers), answers["category"], current=kept)
+
+    def now(answers, name):
+        return answers.get(name, current.get(name))
+
+    stages = [("kind", ask_type)] if ask_kind else []
+    stages += [
+        ("description", lambda v: prompt_description(current=now(v, "description"))),
+        ("amount", lambda v: prompt_amount(current=now(v, "amount"))),
+        ("occurred_on", lambda v: prompt_date(current=now(v, "occurred_on"))),
+        ("category", lambda v: prompt_category(app, kind_of(v), current=now(v, "category"))),
+        ("subcategory", subcategory),
+    ]
+    if app.has_accounts():
+        stages.append(("account_id", lambda v: prompt_account(app, current=now(v, "account_id"))))
+    return stages
 
 
 def edit_transaction(app):
@@ -489,27 +799,19 @@ def edit_transaction(app):
     print(paint(f"\n{t('editing', number=chosen.id)}", BOLD))
     print(paint(t("press_enter_keep"), DIM))
 
-    print(f"\n{t('field_type')}:")
-    kind = prompt_kind(current=chosen.kind)
-    description = prompt_description(current=chosen.description)
-    amount = prompt_amount(current=chosen.amount)
-    occurred_on = prompt_date(current=chosen.occurred_on)
-    category = prompt_category(app, kind, current=chosen.category)
-    # Asked fresh when the category changed, since the old subcategory belonged
-    # to the old category and means nothing under the new one.
-    current_sub = chosen.subcategory if category == chosen.category else None
-    subcategory = prompt_subcategory(app, kind, category, current=current_sub)
-
-    changes = {
-        "kind": kind,
-        "description": description,
-        "amount": amount,
-        "occurred_on": occurred_on,
-        "category": category,
-        "subcategory": subcategory,
+    current = {
+        "kind": chosen.kind,
+        "description": chosen.description,
+        "amount": chosen.amount,
+        "occurred_on": chosen.occurred_on,
+        "category": chosen.category,
+        "subcategory": chosen.subcategory,
+        "account_id": chosen.account_id,
     }
-    if app.has_accounts():
-        changes["account_id"] = prompt_account(app, current=chosen.account_id)
+    changes = run_stages(change_stages(app, current, ask_kind=True))
+    if changes is None:
+        print(t("cancelled"))
+        return
 
     app.update_transaction(chosen.id, **changes)
     print(paint(t("edited"), BOLD))
@@ -910,7 +1212,8 @@ def assign_unassigned_transactions(app):
         return
 
     target_id = prompt_account(app, allow_skip=False)
-    if target_id is None:
+    if target_id is BACK:
+        print(t("cancelled"))
         return
     target = [a for a in app.accounts() if a.id == target_id][0]
 
@@ -931,30 +1234,34 @@ def add_transfer(app):
         return
 
     print(paint(f"\n{t('adding_transfer')}", BOLD))
-    source_id = prompt_account(app, allow_skip=False)
-    if source_id is None:
-        return
 
-    while True:
-        destination_id = prompt_account(app, message_key="ask_destination", allow_skip=False)
-        if destination_id is None:
-            return
-        if destination_id == source_id:
+    def destination(answers):
+        while True:
+            chosen = prompt_account(app, message_key="ask_destination", allow_skip=False)
+            if chosen is BACK or chosen != answers["source"]:
+                return chosen
             print(paint(t("same_account"), RED))
-            continue
-        break
 
-    description = prompt_description()
-    amount = prompt_amount()
-    occurred_on = prompt_date()
+    answers = run_stages(
+        [
+            ("source", lambda _v: prompt_account(app, allow_skip=False)),
+            ("destination", destination),
+            ("description", lambda _v: prompt_description()),
+            ("amount", lambda _v: prompt_amount()),
+            ("occurred_on", lambda _v: prompt_date()),
+        ]
+    )
+    if answers is None:
+        print(t("cancelled"))
+        return
 
     app.add_transaction(
         TRANSFER,
-        description,
-        amount,
-        occurred_on,
-        account_id=source_id,
-        to_account_id=destination_id,
+        answers["description"],
+        answers["amount"],
+        answers["occurred_on"],
+        account_id=answers["source"],
+        to_account_id=answers["destination"],
     )
     print(paint(t("transfer_added"), BOLD))
 
@@ -1600,12 +1907,21 @@ def add_rule(app):
     else:
         print(paint(t("rule_matches_nothing"), YELLOW))
 
-    kind = prompt_category_kind()
-    category = prompt_category(app, kind)
+    answers = run_stages(
+        [
+            ("kind", lambda _v: prompt_category_kind(can_go_back=True)),
+            ("category", lambda v: prompt_category(app, v["kind"])),
+            # Not asked at all when there is no category - nothing to hang it on.
+            ("subcategory", lambda v: prompt_subcategory(app, v["kind"], v["category"])),
+        ]
+    )
+    if answers is None:
+        print(t("cancelled"))
+        return
+    kind, category, subcategory = answers["kind"], answers["category"], answers["subcategory"]
     if not category:
         print(paint(t("budget_no_category"), RED))
         return
-    subcategory = prompt_subcategory(app, kind, category)
 
     answer = input(t("rule_confirm")).strip()
     if answer not in affirmatives():
@@ -1776,6 +2092,9 @@ def set_candidate_category(app, candidates, raw):
         print(paint(t("import_row_unusable"), YELLOW))
         return
     category = prompt_category(app, candidate.kind, current=candidate.category)
+    if category is BACK:
+        print(t("cancelled"))
+        return
     candidate.category = category
 
 
@@ -1825,6 +2144,9 @@ def import_statement(app, raw, path):
     if app.has_accounts():
         print(paint(f"\n{t('import_ask_account')}", BOLD))
         account_id = prompt_account(app)
+        if account_id is BACK:
+            print(paint(t("import_cancelled"), YELLOW))
+            return
 
     candidates = to_candidates(statement, account_id=account_id)
     print(paint(t("import_deposits_note"), DIM))
@@ -1986,6 +2308,9 @@ def import_from_file(app, path=None):
     if app.has_accounts():
         print(paint(f"\n{t('import_ask_account')}", BOLD))
         account_id = prompt_account(app)
+        if account_id is BACK:
+            print(paint(t("import_cancelled"), YELLOW))
+            return
 
     candidates, separator, detected = build_candidates(header, rows, mapping, account_id=account_id)
     # Applied before the preview, so a matched row arrives with its category
@@ -2059,10 +2384,10 @@ def prompt_name(message_key, **kwargs):
         return typed
 
 
-def prompt_category_kind():
+def prompt_category_kind(can_go_back=False):
     """Ask whether a category belongs to income or expenses."""
     print(f"\n{t('pick_category_kind')}")
-    return prompt_kind()
+    return prompt_kind(can_go_back=can_go_back)
 
 
 def show_categories(app):
@@ -2253,12 +2578,22 @@ def show_budgets(app, year=None, month=None):
 
 
 def set_budget(app):
-    category = prompt_category(app, EXPENSE)
+    answers = run_stages(
+        [
+            ("category", lambda _v: prompt_category(app, EXPENSE)),
+            # A budget needs a category, so without one the amount is not
+            # asked for - the refusal comes at once, as it always did.
+            ("amount", lambda v: prompt_amount() if v["category"] else None),
+        ]
+    )
+    if answers is None:
+        print(t("cancelled"))
+        return
+    category = answers["category"]
     if not category:
         print(paint(t("budget_no_category"), RED))
         return
-    amount = prompt_amount()
-    app.set_budget(category, amount)
+    app.set_budget(category, answers["amount"])
     print(paint(t("budget_saved", category=category), BOLD))
 
 
@@ -2312,39 +2647,57 @@ def show_recurring(app):
     )
 
 
-def add_recurring(app):
-    print(paint(f"\n{t('adding_recurring')}", BOLD))
-    kind = prompt_kind()
-    description = prompt_description()
-    amount = prompt_amount()
-    category = prompt_category(app, kind)
-    subcategory = prompt_subcategory(app, kind, category)
-    # A rule with no account would keep generating unassigned transactions.
-    account_id = prompt_account(app) if app.has_accounts() else None
-
+def prompt_frequency():
+    """How often a recurring transaction repeats. A frequency name, or BACK."""
     names = list(FREQUENCIES.keys())
     print(f"\n{t('field_frequency')}:")
     for index, name in enumerate(names, start=1):
         print(f"  {index}. {frequency_label(name)}")
     while True:
-        raw = input(t("choose_frequency", count=len(names))).strip()
+        typed = input(t("choose_frequency", count=len(names)))
+        if typed in cancels():
+            return BACK
+        raw = typed.strip()
         if raw.isdigit() and 1 <= int(raw) <= len(names):
-            frequency = names[int(raw) - 1]
-            break
+            return names[int(raw) - 1]
         print(paint(t("invalid_type"), RED))
 
+
+def prompt_first_date():
     print(paint(f"\n{t('first_date')}", DIM))
-    starts_on = prompt_date()
+    return prompt_date()
+
+
+def add_recurring(app):
+    print(paint(f"\n{t('adding_recurring')}", BOLD))
+    stages = [
+        ("kind", lambda _v: prompt_kind(can_go_back=True)),
+        ("description", lambda _v: prompt_description()),
+        ("amount", lambda _v: prompt_amount()),
+        ("category", lambda v: prompt_category(app, v["kind"])),
+        ("subcategory", lambda v: prompt_subcategory(app, v["kind"], v["category"])),
+    ]
+    # A rule with no account would keep generating unassigned transactions.
+    if app.has_accounts():
+        stages.append(("account_id", lambda _v: prompt_account(app)))
+    stages += [
+        ("frequency", lambda _v: prompt_frequency()),
+        ("starts_on", lambda _v: prompt_first_date()),
+    ]
+    answers = run_stages(stages)
+    if answers is None:
+        print(t("cancelled"))
+        return
 
     app.add_recurring_rule(
-        kind,
-        description,
-        amount,
-        frequency,
-        starts_on,
-        category=category,
-        subcategory=subcategory,
-        account_id=account_id,
+        answers["kind"],
+        answers["description"],
+        answers["amount"],
+        answers["frequency"],
+        answers["starts_on"],
+        category=answers["category"],
+        subcategory=answers["subcategory"],
+        account_id=answers.get("account_id"),
     )
     print(paint(t("recurring_added"), BOLD))
     generated = app.process_recurring()
@@ -2401,8 +2754,8 @@ def recurring_menu(app):
 # ---------------------------------------------------------------------------
 
 MENU_ITEMS = [
-    ("menu_add_income", lambda app: add_transaction(app, INCOME)),
-    ("menu_add_expense", lambda app: add_transaction(app, EXPENSE)),
+    ("menu_add_income", lambda app: add_transactions(app, INCOME)),
+    ("menu_add_expense", lambda app: add_transactions(app, EXPENSE)),
     ("menu_view", show_transactions),
     ("menu_balance", show_balance),
     ("menu_edit", edit_transaction),

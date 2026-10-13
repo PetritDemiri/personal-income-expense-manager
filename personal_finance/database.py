@@ -147,6 +147,9 @@ class Database:
             os.makedirs(directory, exist_ok=True)
         self.created = not os.path.exists(path)
         self._connection = None
+        # Set while atomic() is running, so the writes inside it leave the
+        # committing to it. See _writing.
+        self._atomic = False
         self._ensure_schema()
         self._ensure_user()
 
@@ -181,10 +184,36 @@ class Database:
         """Run several statements as one transaction.
 
         Anything that touches more than one table goes through here, so a
-        failure part-way leaves the database exactly as it was.
+        failure part-way leaves the database exactly as it was. That includes
+        whatever the methods called inside it write - a category created on
+        first use, say - since they leave the committing to this. Used inside
+        another atomic(), it simply becomes part of the outer one.
         """
-        with self.connection:
+        if self._atomic:
             yield self.connection
+            return
+        self._atomic = True
+        try:
+            with self.connection:
+                yield self.connection
+        finally:
+            self._atomic = False
+
+    @contextmanager
+    def _writing(self):
+        """The connection for one write: committed at once, unless it is part
+        of an atomic() that commits it with everything else.
+
+        Every write used to commit itself, which inside atomic() committed
+        everything done so far as well. An import that created a category
+        part-way kept every row before it when a later one failed - the
+        opposite of all or nothing.
+        """
+        if self._atomic:
+            yield self.connection
+        else:
+            with self.connection as connection:
+                yield connection
 
     # -- schema ------------------------------------------------------------
 
@@ -306,7 +335,7 @@ class Database:
         if password:
             values[2], values[3], values[4] = hash_password(password)
             values[5] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-        with self.connection as conn:
+        with self._writing() as conn:
             cursor = conn.execute(
                 "INSERT INTO users (name, name_key, password_hash, password_salt, "
                 " password_iters, password_set_at, is_admin, must_change) "
@@ -316,7 +345,7 @@ class Database:
         return cursor.lastrowid
 
     def set_must_change(self, user_id, required):
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute(
                 "UPDATE users SET must_change = ? WHERE id = ?",
                 (int(required), user_id),
@@ -328,7 +357,7 @@ class Database:
         ]
 
     def set_admin(self, user_id, is_admin):
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute(
                 "UPDATE users SET is_admin = ? WHERE id = ?",
                 (1 if is_admin else 0, user_id),
@@ -350,7 +379,7 @@ class Database:
             stamped = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
         else:
             digest = salt = iterations = stamped = None
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute(
                 "UPDATE users SET password_hash = ?, password_salt = ?, "
                 " password_iters = ?, password_set_at = ?, must_change = 0 "
@@ -367,7 +396,7 @@ class Database:
         )
 
     def rename_user(self, user_id, name):
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute(
                 "UPDATE users SET name = ?, name_key = ? WHERE id = ?",
                 (name, name_key(name), user_id),
@@ -380,7 +409,7 @@ class Database:
         means nothing without them, and leaving it orphaned would be worse
         than removing it.
         """
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
 
     def _totals(self):
@@ -460,7 +489,7 @@ class Database:
         return self._account(row) if row else None
 
     def add_account(self, account):
-        with self.connection as conn:
+        with self._writing() as conn:
             cursor = conn.execute(
                 "INSERT INTO accounts (user_id, name, name_key, kind, opening_cents, position) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
@@ -490,12 +519,12 @@ class Database:
         if not sets:
             return
         values.append(account_id)
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute(f"UPDATE accounts SET {', '.join(sets)} WHERE id = ?", values)
 
     def delete_account(self, account_id):
         """Delete an account. Its transactions survive, unassigned."""
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
 
     # -- categories --------------------------------------------------------
@@ -532,7 +561,7 @@ class Database:
         return self._category(row) if row else None
 
     def add_category(self, category):
-        with self.connection as conn:
+        with self._writing() as conn:
             cursor = conn.execute(
                 "INSERT INTO categories (user_id, name, name_key, kind) VALUES (?, ?, ?, ?)",
                 (self._user_id, category.name, category.key, category.kind),
@@ -554,7 +583,7 @@ class Database:
         return self.add_category(Category(name=name.strip(), kind=kind))
 
     def update_category(self, category_id, name):
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute(
                 "UPDATE categories SET name = ?, name_key = ? WHERE id = ?",
                 (name, name_key(name), category_id),
@@ -567,7 +596,7 @@ class Database:
         without its parent, and a limit on a category that no longer exists is
         not a limit on anything.
         """
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute("DELETE FROM categories WHERE id = ?", (category_id,))
 
     # -- subcategories -----------------------------------------------------
@@ -598,7 +627,7 @@ class Database:
         return self._subcategory(row) if row else None
 
     def add_subcategory(self, subcategory):
-        with self.connection as conn:
+        with self._writing() as conn:
             cursor = conn.execute(
                 "INSERT INTO subcategories (user_id, name, name_key, category_id) "
                 "VALUES (?, ?, ?, ?)",
@@ -616,14 +645,14 @@ class Database:
         return self.add_subcategory(Subcategory(name=name.strip(), category_id=category_id))
 
     def update_subcategory(self, subcategory_id, name):
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute(
                 "UPDATE subcategories SET name = ?, name_key = ? WHERE id = ?",
                 (name, name_key(name), subcategory_id),
             )
 
     def delete_subcategory(self, subcategory_id):
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute("DELETE FROM subcategories WHERE id = ?", (subcategory_id,))
 
     # -- transactions ------------------------------------------------------
@@ -765,7 +794,7 @@ class Database:
         if connection is not None:
             cursor = conn.execute(sql, values)
         else:
-            with conn:
+            with self._writing() as conn:
                 cursor = conn.execute(sql, values)
         transaction.id = cursor.lastrowid
         return transaction.id
@@ -800,11 +829,11 @@ class Database:
         if not sets:
             return
         values.append(transaction_id)
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute(f"UPDATE transactions SET {', '.join(sets)} WHERE id = ?", values)
 
     def delete_transaction(self, transaction_id):
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
 
     # -- recurring rules ---------------------------------------------------
@@ -833,7 +862,7 @@ class Database:
         return [self._rule(row) for row in rows]
 
     def add_recurring_rule(self, rule):
-        with self.connection as conn:
+        with self._writing() as conn:
             cursor = conn.execute(
                 "INSERT INTO recurring_rules (user_id, kind, description, "
                 " amount_cents, category_id, subcategory_id, account_id, "
@@ -863,11 +892,11 @@ class Database:
         if connection is not None:
             conn.execute(sql, values)
         else:
-            with conn:
+            with self._writing() as conn:
                 conn.execute(sql, values)
 
     def delete_recurring_rule(self, rule_id):
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute("DELETE FROM recurring_rules WHERE id = ?", (rule_id,))
 
     # -- budgets -----------------------------------------------------------
@@ -897,7 +926,7 @@ class Database:
 
     def set_budget(self, category_id, amount):
         """Create or replace the limit on one category."""
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute(
                 "INSERT INTO budgets (user_id, category_id, limit_cents) VALUES (?, ?, ?) "
                 "ON CONFLICT(category_id) DO UPDATE SET limit_cents = excluded.limit_cents",
@@ -905,7 +934,7 @@ class Database:
             )
 
     def delete_budget(self, category_id):
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute("DELETE FROM budgets WHERE category_id = ?", (category_id,))
 
     # -- category rules ----------------------------------------------------
@@ -945,7 +974,7 @@ class Database:
         return self._rule_row(row) if row else None
 
     def add_category_rule(self, rule):
-        with self.connection as conn:
+        with self._writing() as conn:
             cursor = conn.execute(
                 "INSERT INTO category_rules (user_id, pattern, pattern_key, category_id, "
                 " subcategory_id) VALUES (?, ?, ?, ?, ?)",
@@ -966,11 +995,11 @@ class Database:
         if not sets:
             return
         values.append(rule_id)
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute(f"UPDATE category_rules SET {', '.join(sets)} WHERE id = ?", values)
 
     def delete_category_rule(self, rule_id):
-        with self.connection as conn:
+        with self._writing() as conn:
             conn.execute("DELETE FROM category_rules WHERE id = ?", (rule_id,))
 
     def count_matching(self, pattern):

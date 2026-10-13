@@ -446,6 +446,51 @@ class TestAtomic:
         assert db.count_transactions() == 1
         assert db.recurring_rules()[0].generated_upto == "01-01-2026"
 
+    def test_a_write_inside_it_waits_for_the_whole_of_it(self, db):
+        """Every write used to commit itself, and with it everything the
+        enclosing transaction had done so far."""
+        with pytest.raises(RuntimeError):
+            with db.atomic() as conn:
+                db.add_transaction(
+                    Transaction(EXPENSE, "first", Decimal("1"), "01-01-2026"), connection=conn
+                )
+                db.ensure_category("Krejt e re", EXPENSE)
+                raise RuntimeError("fails after a category was created")
+
+        assert db.count_transactions() == 0
+        assert db.categories() == []
+
+    def test_one_inside_another_is_part_of_it(self, db):
+        with pytest.raises(RuntimeError):
+            with db.atomic():
+                with db.atomic() as conn:
+                    db.add_transaction(
+                        Transaction(EXPENSE, "inner", Decimal("1"), "01-01-2026"),
+                        connection=conn,
+                    )
+                raise RuntimeError("the outer one fails after the inner one finished")
+
+        assert db.count_transactions() == 0
+
+    def test_a_write_outside_it_is_saved_at_once(self, db, tmp_path):
+        db.ensure_category("Ushqim", EXPENSE)
+        other = sqlite3.connect(db.path)
+        try:
+            assert other.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 1
+        finally:
+            other.close()
+
+    def test_it_is_usable_again_after_a_failure(self, db):
+        with pytest.raises(RuntimeError):
+            with db.atomic():
+                raise RuntimeError("fails")
+        db.ensure_category("Ushqim", EXPENSE)
+        other = sqlite3.connect(db.path)
+        try:
+            assert other.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 1
+        finally:
+            other.close()
+
 
 class TestConversion:
     @pytest.mark.parametrize(
