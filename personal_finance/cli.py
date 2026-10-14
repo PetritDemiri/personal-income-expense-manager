@@ -8,7 +8,6 @@ import argparse
 import contextlib
 import os
 import sys
-from decimal import Decimal, InvalidOperation
 
 from . import colors, console
 from .accounts import balances_for, count_unassigned, find_account
@@ -29,7 +28,7 @@ from .display import (
     print_transactions,
 )
 from .i18n import set_language, t, type_label
-from .models import ACCOUNT_KINDS, parse_amount, whole_number
+from .models import ACCOUNT_KINDS, parse_amount, parse_signed_amount, whole_number
 from .reports import calculate_totals, month_report, sort_by_date
 from .schema import EXPENSE, INCOME, TRANSFER
 from .ui import numbered, run_menu
@@ -438,11 +437,8 @@ def do_add_account(app, args):
         print(paint(t("invalid_account_type", types=", ".join(ACCOUNT_KINDS)), RED))
         return
 
-    try:
-        opening = Decimal(opening_raw.strip())
-        if not opening.is_finite():
-            raise InvalidOperation
-    except (InvalidOperation, AttributeError):
+    opening = parse_signed_amount(opening_raw)
+    if opening is None:
         print(paint(t("invalid_opening"), RED))
         return
 

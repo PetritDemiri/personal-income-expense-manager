@@ -208,12 +208,16 @@ class TestAddingARule:
         add_rule(app)
         assert app.category_rules()[0].category == "Lojera"
 
-    def test_no_category_is_still_refused(self, app, answers, capsys):
+    def test_a_category_is_asked_for_until_given(self, app, answers, capsys):
+        """It used to give up with a message about budgets, of all things."""
         from personal_finance.ui import add_rule
 
-        answers("STEAM", "2", "")
+        answers("STEAM", "2", "", "Argetim", "", "po")
         add_rule(app)
-        assert app.category_rules() == []
+        shown = capsys.readouterr().out
+        assert "Nevojitet nje kategori." in shown
+        assert "buxhet" not in shown
+        assert app.category_rules()[0].category == "Argetim"
 
 
 class TestSettingABudget:
@@ -234,12 +238,21 @@ class TestSettingABudget:
         assert len(budgets) == 1
         assert app.category_name_map()[budgets[0].category_id] == "Transport"
 
-    def test_no_category_is_still_refused_without_asking_the_amount(self, app, answers):
+    def test_a_category_is_asked_for_until_given(self, app, answers, capsys):
         from personal_finance.ui import set_budget
 
-        answers("")
+        asked = answers("", "Ushqim", "200")
         set_budget(app)
-        assert app.budgets() == []
+        shown = capsys.readouterr().out
+        assert "Nevojitet nje kategori." in shown
+        assert "nuk ka buxhet" not in shown
+        # The amount is not asked until there is a category to put it on.
+        assert asked == [
+            "Zgjidhni ose shkruani kategorine: ",
+            "Zgjidhni ose shkruani kategorine: ",
+            "Vendosni shumen: ",
+        ]
+        assert len(app.budgets()) == 1
 
 
 class TestAddingARecurringTransaction:
@@ -389,3 +402,43 @@ class TestChangingAnAccount:
         edit_account(cash)
         [account] = cash.accounts()
         assert (account.name, account.kind, account.opening) == ("Kesh", CASH, Decimal("40"))
+
+
+class TestTheCategoryScreens:
+    """ "Per cilin lloj?" refused the cancel word as a wrong answer."""
+
+    def test_adding_a_category(self, app, answers, capsys):
+        from personal_finance.ui import add_category
+
+        answers("anulo")
+        add_category(app)
+        assert app.categories(EXPENSE) == []
+        assert "Anuluar." in capsys.readouterr().out
+
+    def test_adding_one_steps_back_from_the_name_to_the_kind(self, app, answers):
+        from personal_finance.ui import add_category
+
+        answers("2", "anulo", "1", "Dhurata")
+        add_category(app)
+        assert app.categories(EXPENSE) == []
+        assert [c.name for c in app.categories(INCOME)] == ["Dhurata"]
+
+    @pytest.mark.parametrize(
+        "screen",
+        [
+            "rename_category",
+            "delete_category",
+            "add_subcategory",
+            "rename_subcategory",
+            "delete_subcategory",
+        ],
+    )
+    def test_every_screen_that_asks_for_a_kind(self, app, answers, capsys, screen):
+        from personal_finance import ui
+
+        app.add_category("Ushqim", EXPENSE)
+        capsys.readouterr()
+        answers("anulo")
+        getattr(ui, screen)(app)
+        assert "Anuluar." in capsys.readouterr().out
+        assert [c.name for c in app.categories(EXPENSE)] == ["Ushqim"]

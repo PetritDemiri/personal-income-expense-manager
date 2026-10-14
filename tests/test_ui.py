@@ -112,6 +112,20 @@ class TestPromptOpeningBalance:
         assert prompt_opening_balance() == Decimal("0")
         assert "pavlefshme" in capsys.readouterr().out
 
+    @pytest.mark.parametrize("bad", ["1e3", "1_000", "١٢٣", "+5", "850.", ".5", "-", "1,5"])
+    def test_it_follows_the_amount_rules(self, answers, capsys, bad):
+        """Plain digits with an optional decimal point, like every amount -
+        with a leading minus allowed. It used to take anything Decimal would,
+        so 1e3 quietly became 1000."""
+        answers(bad, "850.50")
+        assert prompt_opening_balance() == Decimal("850.50")
+        assert "pavlefshme" in capsys.readouterr().out
+
+    def test_the_same_when_changing_an_account(self, answers, capsys):
+        answers("1e3", "")
+        assert prompt_opening_balance(current=Decimal("40")) == Decimal("40")
+        assert "pavlefshme" in capsys.readouterr().out
+
 
 class TestPromptDate:
     def test_yes_gives_today(self, answers):
@@ -643,7 +657,8 @@ class TestCancelWord:
     def test_cancelling_a_category_name_prompt(self, app, answers, capsys):
         from personal_finance.ui import add_category
 
-        answers("2", "anulo")
+        # The name steps back to the kind, and cancelling that leaves.
+        answers("2", "anulo", "anulo")
         add_category(app)
         assert "Anuluar" in capsys.readouterr().out
         assert app.categories(EXPENSE) == []

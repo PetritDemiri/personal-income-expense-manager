@@ -250,7 +250,7 @@ MESSAGES = {
         "budget_used": "Perdorur",
         "budget_over": "KUJDES: Buxheti per {category} eshte tejkaluar me {amount}!",
         "budget_near": "Kujdes: {percent}% e buxhetit per {category} eshte perdorur.",
-        "budget_no_category": "Kategoria nuk ka buxhet te caktuar.",
+        "category_needed": "Nevojitet nje kategori.",
         # Reports
         "report_title": "Raporti i {month}",
         "report_this_month": "Ky muaj",
@@ -740,7 +740,7 @@ MESSAGES = {
         "budget_used": "Used",
         "budget_over": "WARNING: the budget for {category} is over by {amount}!",
         "budget_near": "Careful: {percent}% of the {category} budget has been used.",
-        "budget_no_category": "This category has no budget set.",
+        "category_needed": "A category is needed.",
         "report_title": "Report for {month}",
         "report_this_month": "This month",
         "report_last_month": "Last month",

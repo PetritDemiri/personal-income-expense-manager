@@ -349,7 +349,7 @@ A range written backwards is read forwards. Several transactions can be deleted 
 
 Input is validated strictly, because a value that is quietly accepted and quietly wrong is worse than a rejection.
 
-**Amounts** are plain digits with an optional decimal point. Scientific notation, Python's underscore separators, and digits from other scripts are all rejected — `Decimal` accepts them, but nobody types them on purpose.
+**Amounts** are plain digits with an optional decimal point. Scientific notation, Python's underscore separators, and digits from other scripts are all rejected — `Decimal` accepts them, but nobody types them on purpose. An account's opening balance follows the same rule, with a leading minus allowed, since a card usually starts out owing money.
 
 **Dates** must be exactly `dd-mm-yyyy`, and must be real: 31 April, 29 February in a common year, month 13 and day 00 are all refused.
 

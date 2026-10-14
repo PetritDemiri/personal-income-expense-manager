@@ -237,6 +237,13 @@ class TestAccounts:
         main(["--llogarite"])
         assert "-250.00" in capsys.readouterr().out
 
+    @pytest.mark.parametrize("bad", ["1e3", "1_000", "١٢٣", "+5"])
+    def test_the_opening_balance_follows_the_amount_rules(self, capsys, bad):
+        main(["--shto-llogari", "Banka", "Banke", bad])
+        assert "Gjendje fillestare e pavlefshme" in capsys.readouterr().out
+        main(["--llogarite"])
+        assert "Banka" not in capsys.readouterr().out
+
     def test_unknown_kind_is_rejected_by_name(self, capsys):
         main(["--shto-llogari", "X", "Kripto", "100"])
         output = capsys.readouterr().out

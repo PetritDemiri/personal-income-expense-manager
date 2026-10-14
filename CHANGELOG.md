@@ -5,10 +5,34 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Twenty-four versions are recorded below. Twenty-three of them were released;
+Twenty-five versions are recorded below. Twenty-four of them were released;
 2.0.0 was a development phase whose work shipped as part of 2.1.0, and it is
 documented here because it is a distinct stage in the project's history. Commit
 hashes are given so each entry can be traced back to the code.
+
+## [3.11.2] — 2026-10-14
+
+Three small faults left after 3.11.1, none of which could crash the program
+or lose data.
+
+### Fixed
+
+- An account's opening balance took anything Python's `Decimal` would, so
+  `1e3` quietly became 1000, and `1_000` and digits from other scripts were
+  accepted too - on the menu and with `--shto-llogari`. It now follows the
+  rule every amount follows, plain digits with an optional decimal point,
+  with a leading minus allowed.
+- Adding a rule or a budget without a category ended with "Kategoria nuk ka
+  buxhet te caktuar" - a message about budgets, wrong for both. A category is
+  needed for either, so the question is now asked again, saying so, and
+  `anulo` still leaves.
+- `anulo` at "Per cilin lloj?" in the categories screens was refused as a
+  wrong answer. It now cancels, and adding a category steps back from the
+  name to the kind, like the other screens.
+
+### Notes
+
+- 1489 tests, up from 1469.
 
 ## [3.11.1] — 2026-10-14
 

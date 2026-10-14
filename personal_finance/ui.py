@@ -11,7 +11,7 @@ menu that showed them would look broken.
 import getpass
 import os
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from .accounts import balances_for, count_unassigned, find_account
 from .budgets import all_statuses
@@ -46,7 +46,14 @@ from .display import (
     print_transactions,
 )
 from .i18n import affirmatives, cancels, frequency_label, negatives, t, type_label
-from .models import ACCOUNT_KINDS, TransactionView, parse_amount, valid_name, whole_number
+from .models import (
+    ACCOUNT_KINDS,
+    TransactionView,
+    parse_amount,
+    parse_signed_amount,
+    valid_name,
+    whole_number,
+)
 from .passwords import CODE_ALPHABET, CODE_LENGTH
 from .recurring import FREQUENCIES
 from .reports import calculate_totals, month_report, sort_by_date
@@ -240,8 +247,11 @@ def prompt_kind(current=None, can_go_back=False):
         print(paint(t("invalid_type"), RED))
 
 
-def prompt_category(app, kind, current=None, description=None, carried=False):
+def prompt_category(app, kind, current=None, description=None, carried=False, required=False):
     """Ask for a category, offering the ones already defined.
+
+    Enter means no category, except where one is `required` - a rule or a
+    budget means nothing without one - and there it is asked for again.
 
     A name typed here that does not exist yet is created when the transaction
     is saved, so entry never stalls on defining a category first.
@@ -281,7 +291,12 @@ def prompt_category(app, kind, current=None, description=None, carried=False):
         if typed in cancels():
             return BACK
         if not typed:
-            return None if current is None else current
+            if current is not None:
+                return current
+            if required:
+                print(paint(t("category_needed"), RED))
+                continue
+            return None
         if current is not None and typed == CLEAR_MARKER:
             return None
 
@@ -443,13 +458,12 @@ def prompt_opening_balance(current=None):
         raw = typed.strip()
         if not raw:
             return Decimal("0.00") if current is None else current
-        try:
-            value = Decimal(raw)
-            if not value.is_finite():
-                raise InvalidOperation
+        # The same rule as every amount, with a leading minus allowed. Decimal
+        # alone took 1e3, 1_000 and digits from other scripts.
+        value = parse_signed_amount(raw)
+        if value is not None:
             return value
-        except InvalidOperation:
-            print(paint(t("invalid_opening"), RED))
+        print(paint(t("invalid_opening"), RED))
 
 
 def prompt_index(count, message):
@@ -1962,8 +1976,7 @@ def add_rule(app):
     answers = run_stages(
         [
             ("kind", lambda _v: prompt_category_kind(can_go_back=True)),
-            ("category", lambda v: prompt_category(app, v["kind"])),
-            # Not asked at all when there is no category - nothing to hang it on.
+            ("category", lambda v: prompt_category(app, v["kind"], required=True)),
             ("subcategory", lambda v: prompt_subcategory(app, v["kind"], v["category"])),
         ]
     )
@@ -1971,9 +1984,6 @@ def add_rule(app):
         print(t("cancelled"))
         return
     kind, category, subcategory = answers["kind"], answers["category"], answers["subcategory"]
-    if not category:
-        print(paint(t("budget_no_category"), RED))
-        return
 
     answer = input(t("rule_confirm")).strip()
     if answer not in affirmatives():
@@ -2423,15 +2433,19 @@ def history_menu(app):
 # ---------------------------------------------------------------------------
 
 
-def prompt_name(message_key, **kwargs):
+def prompt_name(message_key, can_go_back=False, **kwargs):
     """Ask for a category or subcategory name. None if cancelled.
 
     Validated exactly as typed, like the prompts used when adding a
-    transaction - a name is stored as written or not at all.
+    transaction - a name is stored as written or not at all. With
+    `can_go_back`, cancelling answers BACK instead, for a task that steps back
+    one question at a time.
     """
     while True:
         typed = input(t(message_key, **kwargs))
         if typed in cancels():
+            if can_go_back:
+                return BACK
             print(t("cancelled"))
             return None
         if not valid_name(typed):
@@ -2465,7 +2479,11 @@ def show_categories(app):
 
 def pick_category(app, kind=None):
     """List categories and return the chosen one, or None."""
-    kind = kind or prompt_category_kind()
+    if kind is None:
+        kind = prompt_category_kind(can_go_back=True)
+        if kind is BACK:
+            print(t("cancelled"))
+            return None
     categories = app.categories(kind)
     if not categories:
         print(paint(t("no_categories"), YELLOW))
@@ -2491,10 +2509,16 @@ def pick_subcategory(app, category):
 
 
 def add_category(app):
-    kind = prompt_category_kind()
-    name = prompt_name("ask_new_category")
-    if name is None:
+    answers = run_stages(
+        [
+            ("kind", lambda _v: prompt_category_kind(can_go_back=True)),
+            ("name", lambda _v: prompt_name("ask_new_category", can_go_back=True)),
+        ]
+    )
+    if answers is None:
+        print(t("cancelled"))
         return
+    kind, name = answers["kind"], answers["name"]
     if app.category_exists(name, kind):
         print(paint(t("category_exists"), RED))
         return
@@ -2636,19 +2660,14 @@ def show_budgets(app, year=None, month=None):
 def set_budget(app):
     answers = run_stages(
         [
-            ("category", lambda _v: prompt_category(app, EXPENSE)),
-            # A budget needs a category, so without one the amount is not
-            # asked for - the refusal comes at once, as it always did.
-            ("amount", lambda v: prompt_amount() if v["category"] else None),
+            ("category", lambda _v: prompt_category(app, EXPENSE, required=True)),
+            ("amount", lambda _v: prompt_amount()),
         ]
     )
     if answers is None:
         print(t("cancelled"))
         return
     category = answers["category"]
-    if not category:
-        print(paint(t("budget_no_category"), RED))
-        return
     app.set_budget(category, answers["amount"])
     print(paint(t("budget_saved", category=category), BOLD))
 
