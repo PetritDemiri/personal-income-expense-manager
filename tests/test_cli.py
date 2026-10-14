@@ -528,6 +528,20 @@ class TestHistoryFlag:
         assert "Qera" in output
         assert "Ushqime" not in output
 
+    def test_one_transaction_is_named_by_its_row(self, capsys, app):
+        """Not by the number the database keeps, which differs once anything
+        has been deleted."""
+        add_expense("E para", "1", "01-06-2026")
+        add_expense("E dyta", "2", "02-06-2026")
+        add_expense("E treta", "3", "03-06-2026")
+        app.delete_transaction(app.transactions()[0].id)
+        capsys.readouterr()
+        main(["--historia", "2"])
+        output = capsys.readouterr().out
+        assert "Historiku i transaksionit #2" in output
+        assert "#3" not in output
+        assert "E treta" in output
+
     def test_an_out_of_range_number_is_rejected(self, capsys):
         add_expense()
         capsys.readouterr()

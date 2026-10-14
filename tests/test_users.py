@@ -406,11 +406,12 @@ class TestNoNoteThatPasswordsAreOnlyForTheWeb:
 
     def test_not_when_setting_a_password(self, app, monkeypatch, capsys):
         import builtins
+        import getpass
 
         from personal_finance.ui import set_user_password
 
-        replies = iter(["1", "anulo"])
-        monkeypatch.setattr(builtins, "input", lambda _prompt="": next(replies))
+        monkeypatch.setattr(builtins, "input", lambda _prompt="": "1")
+        monkeypatch.setattr(getpass, "getpass", lambda _prompt="": "anulo")
         set_user_password(app)
         assert "internetit" not in capsys.readouterr().out
 
@@ -426,3 +427,90 @@ class TestNoNoteThatPasswordsAreOnlyForTheWeb:
         from personal_finance.i18n import MESSAGES
 
         assert all("password_note" not in catalog for catalog in MESSAGES.values())
+
+
+class TestSettingSomeoneElsesPassword:
+    """An administrator setting another person's password.
+
+    It was read like any other answer: shown on screen as it was typed, and
+    taken whatever it was - "1", say - while every other new password is
+    typed out of sight, twice, and held to the rules.
+    """
+
+    @pytest.fixture(autouse=True)
+    def plain(self):
+        from personal_finance import colors, i18n
+
+        i18n.set_language("sq")
+        colors.configure(force_off=True)
+        yield
+        i18n.set_language("sq")
+
+    @pytest.fixture
+    def mother(self, app, capsys):
+        user_id = app.add_user("Mami")
+        capsys.readouterr()
+        return user_id
+
+    def run(self, app, user_id, monkeypatch, *typed_out_of_sight):
+        """Pick the user, then answer the hidden prompts. Returns what was
+        asked in the open and what out of sight."""
+        import builtins
+        import getpass
+
+        from personal_finance.ui import set_user_password
+
+        position = [user.id for user in app.users()].index(user_id) + 1
+        hidden = list(typed_out_of_sight)
+        asked = {"open": [], "hidden": []}
+
+        def visible(prompt=""):
+            asked["open"].append(prompt)
+            return str(position)
+
+        def out_of_sight(prompt=""):
+            asked["hidden"].append(prompt)
+            if not hidden:
+                raise AssertionError(f"asked for more than expected: {prompt!r}")
+            return hidden.pop(0)
+
+        monkeypatch.setattr(builtins, "input", visible)
+        monkeypatch.setattr(getpass, "getpass", out_of_sight)
+        set_user_password(app)
+        return asked
+
+    def test_it_is_typed_out_of_sight(self, app, mother, monkeypatch):
+        asked = self.run(app, mother, monkeypatch, "Fjalekalimi2", "Fjalekalimi2")
+        assert len(asked["open"]) == 1  # only which user
+        assert asked["hidden"] == [
+            "Fjalekalimi i ri (bosh per ta hequr): ",
+            "Perserisni fjalekalimin e ri: ",
+        ]
+        assert app.db.check_password(mother, "Fjalekalimi2")
+
+    def test_the_rules_apply(self, app, mother, monkeypatch, capsys):
+        self.run(app, mother, monkeypatch, "1", "Fjalekalimi2", "Fjalekalimi2")
+        assert "Fjalekalimi duhet te kete" in capsys.readouterr().out
+        assert app.db.check_password(mother, "Fjalekalimi2")
+        assert not app.db.check_password(mother, "1")
+
+    def test_it_must_be_typed_the_same_twice(self, app, mother, monkeypatch, capsys):
+        self.run(
+            app, mother, monkeypatch, "Fjalekalimi2", "Fjalekalimi3", "Fjalekalimi2", "Fjalekalimi2"
+        )
+        assert "Fjalekalimet nuk perputhen." in capsys.readouterr().out
+        assert app.db.check_password(mother, "Fjalekalimi2")
+
+    def test_enter_alone_still_removes_it(self, app, mother, monkeypatch, capsys):
+        app.set_password(mother, "Fjalekalimi2")
+        capsys.readouterr()
+        self.run(app, mother, monkeypatch, "")
+        assert not app.db.user(mother).has_password
+        assert "Fjalekalimi u hoq per Mami." in capsys.readouterr().out
+
+    def test_cancelling_changes_nothing(self, app, mother, monkeypatch, capsys):
+        app.set_password(mother, "Fjalekalimi2")
+        capsys.readouterr()
+        self.run(app, mother, monkeypatch, "anulo")
+        assert app.db.check_password(mother, "Fjalekalimi2")
+        assert "Anuluar." in capsys.readouterr().out

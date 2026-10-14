@@ -101,9 +101,9 @@ def tokenize(text):
     tokens = []
     index = 0
     while index < len(text):
-        if text[index].isdigit():
+        if text[index].isdecimal():
             start = index
-            while index < len(text) and text[index].isdigit():
+            while index < len(text) and text[index].isdecimal():
                 index += 1
             tokens.append(text[start:index])
             continue
@@ -124,7 +124,9 @@ def token_rank(token):
         return (GROUP_LETTER, LETTER_RANK[token], "")
     if token in FOREIGN_RANK:
         return (GROUP_LETTER, FOREIGN_RANK[token], "")
-    if token.isdigit():
+    # isdecimal, not isdigit: "²" passes isdigit and then int() refuses it,
+    # which made sorting a list holding such a name crash.
+    if token.isdecimal():
         return (GROUP_DIGIT, int(token), "")
     if token.isalpha():
         # A letter from some other script. Ordered after the alphabet, and

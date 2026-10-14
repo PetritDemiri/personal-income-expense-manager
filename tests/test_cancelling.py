@@ -313,3 +313,79 @@ class TestTheImport:
         import_from_file(app, path=str(FIXTURE))
         assert app.transactions() == []
         assert "Importimi u anulua" in capsys.readouterr().out
+
+
+class TestAddingAnAccount:
+    """The name used to be taken as typed, so cancelling made an account
+    called "anulo"."""
+
+    def test_cancelling_the_name_makes_nothing(self, app, answers, capsys):
+        from personal_finance.ui import add_account
+
+        answers("anulo")
+        add_account(app)
+        assert app.accounts() == []
+        assert "Anuluar." in capsys.readouterr().out
+
+    # name, cash, opening balance
+    REACH = ("Kesh", "1", "40")
+
+    @pytest.mark.parametrize("question", range(3))
+    def test_no_question_takes_it_as_an_answer(self, app, answers, capsys, question):
+        from personal_finance.ui import add_account
+
+        answers(*backing_out(self.REACH, question))
+        add_account(app)
+        assert app.accounts() == []
+
+    def test_it_steps_back_one_question(self, app, answers):
+        from personal_finance.ui import add_account
+
+        # name, cancel at the kind, another name, bank, opening balance
+        answers("Kesh", "anulo", "Banka", "2", "850")
+        add_account(app)
+        [account] = app.accounts()
+        assert (account.name, account.kind, account.opening) == ("Banka", BANK, Decimal("850"))
+
+    def test_a_name_already_used_is_still_refused(self, app, answers, capsys):
+        from personal_finance.ui import add_account
+
+        app.add_account("Kesh", CASH, Decimal("0"))
+        capsys.readouterr()
+        answers("Kesh", "Banka", "2", "")
+        add_account(app)
+        assert "ekziston" in capsys.readouterr().out
+        assert [a.name for a in app.accounts()] == ["Kesh", "Banka"]
+
+
+class TestChangingAnAccount:
+    @pytest.fixture
+    def cash(self, app, capsys):
+        app.add_account("Kesh", CASH, Decimal("40"))
+        capsys.readouterr()
+        return app
+
+    def test_cancelling_the_name_changes_nothing(self, cash, answers, capsys):
+        from personal_finance.ui import edit_account
+
+        answers("1", "anulo")
+        edit_account(cash)
+        [account] = cash.accounts()
+        assert (account.name, account.opening) == ("Kesh", Decimal("40"))
+        assert "Anuluar." in capsys.readouterr().out
+
+    def test_it_steps_back_offering_the_answer_just_given(self, cash, answers):
+        from personal_finance.ui import edit_account
+
+        asked = answers("1", "Xhepi", "anulo", "", "", "")
+        edit_account(cash)
+        assert "Emri [Xhepi] (Enter = pa ndryshim): " in asked
+        assert cash.accounts()[0].name == "Xhepi"
+
+    def test_enter_keeps_everything(self, cash, answers):
+        from personal_finance.ui import edit_account
+
+        answers("1", "", "", "")
+        edit_account(cash)
+        [account] = cash.accounts()
+        assert (account.name, account.kind, account.opening) == ("Kesh", CASH, Decimal("40"))

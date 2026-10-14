@@ -30,6 +30,7 @@ from html.parser import HTMLParser
 from typing import Optional
 
 from .importing import ImportError_, decode, is_deposit, parse_number
+from .models import whole_number
 
 # The header that identifies the transactions table. Matched loosely so a
 # renamed trailing column does not stop the whole import.
@@ -155,8 +156,9 @@ def parse_statement(raw):
             statement.stated_credit = parse_number(credit)
             # The count sits in the last cell, past the header's width.
             for cell in reversed(row):
-                if cell.strip().isdigit():
-                    statement.stated_count = int(cell.strip())
+                count = whole_number(cell.strip())
+                if count is not None:
+                    statement.stated_count = count
                     break
             continue
 

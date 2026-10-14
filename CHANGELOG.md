@@ -5,10 +5,44 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Twenty-three versions are recorded below. Twenty-two of them were released;
+Twenty-four versions are recorded below. Twenty-three of them were released;
 2.0.0 was a development phase whose work shipped as part of 2.1.0, and it is
 documented here because it is a distinct stage in the project's history. Commit
 hashes are given so each entry can be traced back to the code.
+
+## [3.11.1] — 2026-10-14
+
+Four faults found while checking the program before making the repository
+public. None could lose data.
+
+### Fixed
+
+- Setting another user's password from the users menu showed it on screen as
+  it was typed, and took it whatever it was - "1" would do. It is now typed
+  out of sight, twice, and held to the rules, like every other new password.
+  Enter on its own still removes it.
+- A digit that is not 0 to 9 - `²`, `①`, a stray AltGr+2 - ended the program
+  at the main menu and at the sign-in screen, before anyone had signed in, and
+  at most other places a number is typed: the users menu, a category,
+  subcategory or account by number, an account type, a frequency, the months
+  of a chart, rows, the import's columns and files, and `--grafiku`. The check
+  accepted them as digits and the conversion then refused them. Only 0 to 9
+  are digits now; anything else is refused like any other wrong answer. A
+  category with such a character in its name - possible through a flag or an
+  import - crashed every list of categories as it was sorted; it now sorts
+  like any other name.
+- Editing a transaction said "transaction #5" after row 3 was picked - the
+  number the database keeps, which differs from the row as soon as anything
+  has been deleted. It names the row now, and so does the history of one
+  transaction, on the menu and with `--historia`. The full history still
+  shows the kept number: a deleted transaction has no row any more.
+- Typing `anulo` when adding an account made an account called "anulo", and
+  when changing one renamed it. Both screens now step back one question at a
+  time, like the others.
+
+### Notes
+
+- 1469 tests, up from 1411.
 
 ## [3.11.0] — 2026-10-14
 

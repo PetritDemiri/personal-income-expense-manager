@@ -72,6 +72,23 @@ def parse_amount(value, allow_zero=True):
     return amount
 
 
+WHOLE_NUMBER_PATTERN = re.compile(r"[0-9]+")
+
+
+def whole_number(text):
+    """The number written in `text` with the digits 0 to 9 alone, or None.
+
+    Every number typed at a prompt - a menu choice, a row, a column - goes
+    through here. `str.isdigit()` also says yes to "²" and "①", which int()
+    then refuses, so a check written with it let them through to a crash; a
+    stray AltGr+2 at the main menu ended the program. Digits from other
+    scripts are refused too, as they are in amounts.
+    """
+    if text and WHOLE_NUMBER_PATTERN.fullmatch(text):
+        return int(text)
+    return None
+
+
 def valid_name(text):
     """Whether a category or subcategory name is acceptable.
 

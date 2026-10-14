@@ -46,7 +46,7 @@ from .display import (
     print_transactions,
 )
 from .i18n import affirmatives, cancels, frequency_label, negatives, t, type_label
-from .models import ACCOUNT_KINDS, TransactionView, parse_amount, valid_name
+from .models import ACCOUNT_KINDS, TransactionView, parse_amount, valid_name, whole_number
 from .passwords import CODE_ALPHABET, CODE_LENGTH
 from .recurring import FREQUENCIES
 from .reports import calculate_totals, month_report, sort_by_date
@@ -75,7 +75,12 @@ def numbered(transactions, subset=None):
 
 
 def pick(app, message):
-    """Show the transactions and ask for one by number. Returns a view or None."""
+    """Show the transactions and ask for one by number.
+
+    Returns (row number, view), or None. The row number comes back with it so
+    the screen that follows can name the row that was picked - the number the
+    database keeps differs from it once anything has been deleted.
+    """
     rows = app.transactions()
     print_transactions(numbered(rows))
     if not rows:
@@ -84,14 +89,11 @@ def pick(app, message):
     if typed in cancels():
         print(t("cancelled"))
         return None
-    try:
-        position = int(typed)
-        if position < 1 or position > len(rows):
-            raise ValueError
-    except ValueError:
+    position = whole_number(typed.strip())
+    if position is None or not 1 <= position <= len(rows):
         print(paint(t("invalid_number"), RED))
         return None
-    return rows[position - 1]
+    return position, rows[position - 1]
 
 
 # ---------------------------------------------------------------------------
@@ -283,8 +285,8 @@ def prompt_category(app, kind, current=None, description=None, carried=False):
         if current is not None and typed == CLEAR_MARKER:
             return None
 
-        if typed.isdigit():
-            index = int(typed)
+        index = whole_number(typed)
+        if index is not None:
             if 1 <= index <= len(options):
                 return options[index - 1]
             print(paint(t("invalid_category_number"), RED))
@@ -328,8 +330,8 @@ def prompt_subcategory(app, kind, category, current=None):
         if current is not None and typed == CLEAR_MARKER:
             return None
 
-        if typed.isdigit():
-            index = int(typed)
+        index = whole_number(typed)
+        if index is not None:
             if 1 <= index <= len(options):
                 return options[index - 1]
             print(paint(t("invalid_subcategory_number"), RED))
@@ -372,8 +374,8 @@ def prompt_account(app, current=None, message_key="ask_account", allow_skip=True
             if raw == CLEAR_MARKER and allow_skip:
                 return None
 
-        if raw.isdigit():
-            index = int(raw)
+        index = whole_number(raw)
+        if index is not None:
             if 1 <= index <= len(accounts):
                 return accounts[index - 1].id
             print(paint(t("invalid_account_number"), RED))
@@ -385,30 +387,62 @@ def prompt_account(app, current=None, message_key="ask_account", allow_skip=True
         print(paint(t("invalid_account_number"), RED))
 
 
+def prompt_account_name(app, current=None, account_id=None):
+    """An account's name: not empty, and not one another account has. BACK if cancelled.
+
+    The cancel word is checked before anything else. It used to be taken as a
+    name, so cancelling made an account called "anulo".
+    """
+    while True:
+        if current is None:
+            typed = input(t("ask_account_name"))
+        else:
+            typed = input(t("ask_account_name_keep", current=current))
+        if typed in cancels():
+            return BACK
+        name = typed.strip()
+        if not name:
+            if current is not None:
+                return current
+            print(paint(t("empty_description"), RED))
+            continue
+        existing = app.account_by_name(name)
+        if existing is not None and existing.id != account_id:
+            print(paint(t("account_exists"), RED))
+            continue
+        return name
+
+
 def prompt_account_kind(current=None):
+    """Cash, bank or card. BACK if cancelled."""
     print(f"\n{t('field_type')}:")
     for index, name in enumerate(ACCOUNT_KINDS, start=1):
         print(f"  {index}. {name}")
     while True:
-        raw = input(t("ask_account_type", count=len(ACCOUNT_KINDS))).strip()
+        typed = input(t("ask_account_type", count=len(ACCOUNT_KINDS)))
+        if typed in cancels():
+            return BACK
+        raw = typed.strip()
         if not raw and current is not None:
             return current
-        if raw.isdigit() and 1 <= int(raw) <= len(ACCOUNT_KINDS):
-            return ACCOUNT_KINDS[int(raw) - 1]
+        number = whole_number(raw)
+        if number is not None and 1 <= number <= len(ACCOUNT_KINDS):
+            return ACCOUNT_KINDS[number - 1]
         print(paint(t("invalid_type"), RED))
 
 
 def prompt_opening_balance(current=None):
-    """Ask for an opening balance, which may legitimately be negative."""
+    """Ask for an opening balance, which may legitimately be negative. BACK if cancelled."""
     while True:
         if current is None:
-            raw = input(t("ask_opening")).strip()
-            if not raw:
-                return Decimal("0.00")
+            typed = input(t("ask_opening"))
         else:
-            raw = input(t("ask_opening_keep", current=f"{current:.2f}")).strip()
-            if not raw:
-                return current
+            typed = input(t("ask_opening_keep", current=f"{current:.2f}"))
+        if typed in cancels():
+            return BACK
+        raw = typed.strip()
+        if not raw:
+            return Decimal("0.00") if current is None else current
         try:
             value = Decimal(raw)
             if not value.is_finite():
@@ -792,11 +826,12 @@ def change_stages(app, current, ask_kind=False):
 
 
 def edit_transaction(app):
-    chosen = pick(app, t("ask_number_edit"))
-    if chosen is None:
+    picked = pick(app, t("ask_number_edit"))
+    if picked is None:
         return
+    position, chosen = picked
 
-    print(paint(f"\n{t('editing', number=chosen.id)}", BOLD))
+    print(paint(f"\n{t('editing', number=position)}", BOLD))
     print(paint(t("press_enter_keep"), DIM))
 
     current = {
@@ -855,8 +890,8 @@ def parse_positions(typed, count):
             continue
 
         bounds = part.split("-")
-        if len(bounds) == 2 and all(b.strip().isdigit() for b in bounds):
-            first, last = (int(b) for b in bounds)
+        if len(bounds) == 2 and all(whole_number(b.strip()) is not None for b in bounds):
+            first, last = (whole_number(b.strip()) for b in bounds)
             if first > last:
                 first, last = last, first
             if first < 1 or last > count:
@@ -865,9 +900,9 @@ def parse_positions(typed, count):
                 add(number)
             continue
 
-        if not part.isdigit():
+        number = whole_number(part)
+        if number is None:
             return None
-        number = int(part)
         if number < 1 or number > count:
             return None
         add(number)
@@ -1141,20 +1176,18 @@ def show_accounts(app):
 
 def add_account(app):
     print(paint(f"\n{t('adding_account')}", BOLD))
-    while True:
-        name = input(t("ask_account_name")).strip()
-        if not name:
-            print(paint(t("empty_description"), RED))
-            continue
-        if app.account_by_name(name) is not None:
-            print(paint(t("account_exists"), RED))
-            continue
-        break
-
-    kind = prompt_account_kind()
-    opening = prompt_opening_balance()
-    app.add_account(name, kind, opening)
-    print(paint(t("account_added", name=name), BOLD))
+    answers = run_stages(
+        [
+            ("name", lambda _v: prompt_account_name(app)),
+            ("kind", lambda _v: prompt_account_kind()),
+            ("opening", lambda _v: prompt_opening_balance()),
+        ]
+    )
+    if answers is None:
+        print(t("cancelled"))
+        return
+    app.add_account(answers["name"], answers["kind"], answers["opening"])
+    print(paint(t("account_added", name=answers["name"]), BOLD))
 
 
 def edit_account(app):
@@ -1170,20 +1203,28 @@ def edit_account(app):
     account = accounts[index]
     print(paint(t("press_enter_keep"), DIM))
 
-    while True:
-        name = input(t("ask_account_name_keep", current=account.name)).strip()
-        if not name:
-            name = account.name
-            break
-        existing = app.account_by_name(name)
-        if existing is not None and existing.id != account.id:
-            print(paint(t("account_exists"), RED))
-            continue
-        break
-
-    kind = prompt_account_kind(current=account.kind)
-    opening = prompt_opening_balance(current=account.opening)
-    app.update_account(account.id, name=name, kind=kind, opening=opening)
+    # Stepping back offers the answer just given, as editing a transaction does.
+    answers = run_stages(
+        [
+            (
+                "name",
+                lambda v: prompt_account_name(
+                    app, current=v.get("name", account.name), account_id=account.id
+                ),
+            ),
+            ("kind", lambda v: prompt_account_kind(current=v.get("kind", account.kind))),
+            (
+                "opening",
+                lambda v: prompt_opening_balance(current=v.get("opening", account.opening)),
+            ),
+        ]
+    )
+    if answers is None:
+        print(t("cancelled"))
+        return
+    app.update_account(
+        account.id, name=answers["name"], kind=answers["kind"], opening=answers["opening"]
+    )
     print(paint(t("account_updated"), BOLD))
 
 
@@ -1306,8 +1347,8 @@ def prompt_span():
         if raw in cancels():
             print(t("cancelled"))
             return None
-        if raw.isdigit() and int(raw) in SPANS:
-            return int(raw)
+        if whole_number(raw) in SPANS:
+            return whole_number(raw)
         print(paint(t("invalid_span", spans=spans), RED))
 
 
@@ -1467,11 +1508,11 @@ def choose_user(app):
         raw = input(t("ask_who", count=len(users) + 2))
         if raw in cancels():
             return None
-        if not raw.isdigit():
+        choice = whole_number(raw)
+        if choice is None:
             print(paint(t("invalid_number"), RED))
             continue
 
-        choice = int(raw)
         if choice == len(users) + 2:
             return None
         if choice == len(users) + 1:
@@ -1584,8 +1625,12 @@ def start_session(app):
 # ---------------------------------------------------------------------------
 
 
-def prompt_new_password(label="ask_password_new"):
-    """Ask for a new password twice, enforcing the rules. None if cancelled."""
+def prompt_new_password(label="ask_password_new", can_remove=False):
+    """Ask for a new password twice, enforcing the rules. None if cancelled.
+
+    With `can_remove`, Enter on its own answers "" - no password at all - for
+    the one place that offers taking a password away.
+    """
     from .passwords import MIN_LENGTH, password_problems
 
     while True:
@@ -1593,6 +1638,8 @@ def prompt_new_password(label="ask_password_new"):
         if first in cancels():
             print(t("cancelled"))
             return None
+        if can_remove and first == "":
+            return ""
         problems = password_problems(first)
         if problems:
             rules = ", ".join(t(key, count=MIN_LENGTH) for key in problems)
@@ -1746,13 +1793,17 @@ def rename_user(app):
 
 
 def set_user_password(app):
-    """Set or clear someone's password, which the sign-in screen then asks for."""
+    """Set or remove someone's password, which the sign-in screen then asks for.
+
+    Typed out of sight, twice, and held to the rules, like every other new
+    password. It used to be read like any other answer - shown on screen as
+    it was typed, and taken whatever it was. Enter on its own still removes it.
+    """
     user = pick_user(app)
     if user is None:
         return
-    password = input(t("ask_password"))
-    if password in cancels():
-        print(t("cancelled"))
+    password = prompt_new_password("ask_password", can_remove=True)
+    if password is None:
         return
     app.set_password(user.id, password or None)
     key = "user_password_set" if password else "user_password_cleared"
@@ -1846,8 +1897,9 @@ def users_menu(app):
         choice = prompt_menu_choice(1, back)
         if choice == str(back):
             return
-        if choice.isdigit() and 1 <= int(choice) <= len(entries):
-            entries[int(choice) - 1][1](app)
+        number = whole_number(choice)
+        if number is not None and 1 <= number <= len(entries):
+            entries[number - 1][1](app)
         else:
             print(paint(t("invalid_choice", low=1, high=back), RED))
 
@@ -1993,8 +2045,9 @@ def ask_import_columns(header, mapping):
             raw = input(t("import_which_column", role=role)).strip()
             if raw == "0":
                 break
-            if raw.isdigit() and 1 <= int(raw) <= len(header):
-                mapping[role] = int(raw) - 1
+            number = whole_number(raw)
+            if number is not None and 1 <= number <= len(header):
+                mapping[role] = number - 1
                 break
             print(paint(t("invalid_number"), RED))
     return mapping
@@ -2079,11 +2132,8 @@ def toggle_candidates(candidates, positions):
 
 def set_candidate_category(app, candidates, raw):
     """Set the category on one previewed row."""
-    if not raw.isdigit():
-        print(paint(t("invalid_number"), RED))
-        return
-    index = int(raw)
-    if not 1 <= index <= len(candidates):
+    index = whole_number(raw)
+    if index is None or not 1 <= index <= len(candidates):
         print(paint(t("invalid_number"), RED))
         return
 
@@ -2208,8 +2258,9 @@ def choose_import_file(typed):
         if raw in cancels():
             print(t("cancelled"))
             return None
-        if raw.isdigit() and 1 <= int(raw) <= len(matches):
-            return matches[int(raw) - 1][0]
+        number = whole_number(raw)
+        if number is not None and 1 <= number <= len(matches):
+            return matches[number - 1][0]
         print(paint(t("invalid_number"), RED))
 
 
@@ -2338,11 +2389,16 @@ def show_recent_history(app):
 
 def show_transaction_history(app):
     """Pick a transaction and show everything that has happened to it."""
-    chosen = pick(app, t("ask_number_edit"))
-    if chosen is None:
+    picked = pick(app, t("ask_number_edit"))
+    if picked is None:
         return
-    entries = app.transaction_history(chosen.id)
-    print_history(entries, t("history_for", number=chosen.id), names=app.reference_names())
+    position, chosen = picked
+    print_history(
+        app.transaction_history(chosen.id),
+        t("history_for", number=position),
+        names=app.reference_names(),
+        number=position,
+    )
 
 
 def history_menu(app):
@@ -2657,9 +2713,9 @@ def prompt_frequency():
         typed = input(t("choose_frequency", count=len(names)))
         if typed in cancels():
             return BACK
-        raw = typed.strip()
-        if raw.isdigit() and 1 <= int(raw) <= len(names):
-            return names[int(raw) - 1]
+        number = whole_number(typed.strip())
+        if number is not None and 1 <= number <= len(names):
+            return names[number - 1]
         print(paint(t("invalid_type"), RED))
 
 
@@ -2814,11 +2870,12 @@ def run_menu(app):
             if sign_out_and_exit(app):
                 return False
             continue
-        if choice.isdigit() and 1 <= int(choice) < count:
+        number = whole_number(choice)
+        if number is not None and 1 <= number < count:
             # A menu action returns True only to stop the program, which
             # signing out does - it would otherwise leave someone looking at
             # the data they had just signed out of.
-            if MENU_ITEMS[int(choice) - 1][1](app):
+            if MENU_ITEMS[number - 1][1](app):
                 return
         else:
             print(paint(t("invalid_choice", low=1, high=count), RED))

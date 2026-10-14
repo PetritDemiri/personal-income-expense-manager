@@ -538,11 +538,16 @@ def audit_value(field, value, names=None):
     return str(value)
 
 
-def print_history(entries, title=None, names=None):
+def print_history(entries, title=None, names=None, number=None):
     """Print recorded changes, newest first, with what differed on each.
 
     `names` maps each referenced table to {id: name}, so a change of category
     reads as a category rather than as a number.
+
+    `number` is the row a single transaction was picked by, shown in place of
+    the number the database keeps for it, so the screen names the row that
+    was picked. The full history has no such number to give: a deleted
+    transaction has no row any more.
     """
     if not entries:
         print(paint(f"\n{t('no_history')}", YELLOW))
@@ -550,10 +555,8 @@ def print_history(entries, title=None, names=None):
 
     print(paint(f"\n{title or t('history_title')}", BOLD, CYAN))
     for entry in entries:
-        heading = (
-            f"{entry.at}  {action_label(entry.action)} "
-            f"{entity_label(entry.entity)} #{entry.entity_id}"
-        )
+        shown = number if number is not None else entry.entity_id
+        heading = f"{entry.at}  {action_label(entry.action)} {entity_label(entry.entity)} #{shown}"
         print(paint(heading, BOLD))
 
         changes = entry.changes()

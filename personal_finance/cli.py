@@ -29,7 +29,7 @@ from .display import (
     print_transactions,
 )
 from .i18n import set_language, t, type_label
-from .models import ACCOUNT_KINDS, parse_amount
+from .models import ACCOUNT_KINDS, parse_amount, whole_number
 from .reports import calculate_totals, month_report, sort_by_date
 from .schema import EXPENSE, INCOME, TRANSFER
 from .ui import numbered, run_menu
@@ -558,8 +558,9 @@ def do_history(app, args):
     chosen = rows[position - 1]
     print_history(
         app.transaction_history(chosen.id),
-        t("history_for", number=chosen.id),
+        t("history_for", number=position),
         names=names,
+        number=position,
     )
 
 
@@ -614,11 +615,11 @@ def do_charts(app, args):
     year, month = month_of(today())
 
     if args.grafiku:
-        if not args.grafiku.isdigit() or int(args.grafiku) not in SPANS:
+        span = whole_number(args.grafiku)
+        if span not in SPANS:
             spans = ", ".join(str(s) for s in SPANS)
             print(paint(t("invalid_span", spans=spans), RED))
             return
-        span = int(args.grafiku)
         _months, income, expenses = monthly_bars(rows, today(), span)
         print_monthly_chart(income, expenses, t("chart_months_title", span=span))
         return

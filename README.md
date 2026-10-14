@@ -211,7 +211,7 @@ Anyone who can run the program can also read that file, so on one machine this i
 
 Changing or resetting a password ends every session that user had, since a login granted under the old one should not survive it.
 
-An administrator can also reset someone else's forgotten password, for the case where a person is locked out and cannot work the self-service flow. **Changes to user accounts are recorded in the change history** — a rename, the role being granted or removed, and the moment a password changed. The password hash itself is never recorded: an append-only log outlives the password it would hold. So an administrator resetting an account cannot be prevented, but neither can it be hidden — the account's owner sees that it happened and when.
+An administrator can also reset someone else's forgotten password, for the case where a person is locked out and cannot work the self-service flow. Setting someone's password from the users menu is typed out of sight, twice, and held to the same rules as any other new password; Enter on its own removes it. **Changes to user accounts are recorded in the change history** — a rename, the role being granted or removed, and the moment a password changed. The password hash itself is never recorded: an append-only log outlives the password it would hold. So an administrator resetting an account cannot be prevented, but neither can it be hidden — the account's owner sees that it happened and when.
 
 The log records whose account changed, not who changed it. SQLite triggers cannot see which user the program is acting as; the web version, which has a request behind every change, will be able to record that.
 
@@ -330,7 +330,7 @@ Komandat:
 
 ### Asking questions
 
-Every task that asks several questions — adding or editing a transaction, a transfer, a budget, a rule, a recurring transaction — asks them one at a time. **Cancelling at any question steps back to the one before**, keeping the answers already given; cancelling at the first abandons the task. A task six questions long should not throw away five correct answers to fix the sixth. When editing, going back offers the answer just given, so looking does not undo it. When adding several, stepping back from the first question of one goes to the last question of the one before.
+Every task that asks several questions — adding or editing a transaction, an account, a transfer, a budget, a rule, a recurring transaction — asks them one at a time. **Cancelling at any question steps back to the one before**, keeping the answers already given; cancelling at the first abandons the task. A task six questions long should not throw away five correct answers to fix the sixth. When editing, going back offers the answer just given, so looking does not undo it. When adding several, stepping back from the first question of one goes to the last question of the one before.
 
 Every prompt states what it accepts — typing your own value, pressing Enter to skip, or cancelling — so nothing has to be remembered from one stage to the next. Cancelling is stated once when a task starts.
 
@@ -352,6 +352,8 @@ Input is validated strictly, because a value that is quietly accepted and quietl
 **Amounts** are plain digits with an optional decimal point. Scientific notation, Python's underscore separators, and digits from other scripts are all rejected — `Decimal` accepts them, but nobody types them on purpose.
 
 **Dates** must be exactly `dd-mm-yyyy`, and must be real: 31 April, 29 February in a common year, month 13 and day 00 are all refused.
+
+**Numbers** chosen at a menu, a list or a row are the digits 0 to 9 and nothing else. `²` or `①` — a stray AltGr away on some keyboards — is refused like any other wrong answer; it used to end the program.
 
 **Yes and no** are exact lowercase, in the interface language only — `po`/`jo` in Albanian, `yes`/`no` in English. The input is compared exactly as typed, neither lowercased nor stripped, so `PO` and `" po "` are both refused.
 

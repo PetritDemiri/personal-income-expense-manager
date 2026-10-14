@@ -297,6 +297,45 @@ class TestEditAndDelete:
         assert "Qera" in output
 
 
+class TestTheNumberShownIsTheRowPicked:
+    """A screen reached by picking a row names that row, not the number the
+    database keeps for it. The two part ways as soon as anything is deleted:
+    picking row 2 said "transaction #3"."""
+
+    @pytest.fixture
+    def gap(self, app, capsys):
+        first = app.add_transaction(EXPENSE, "E para", Decimal("1"), "01-06-2026", "Qera")
+        app.add_transaction(EXPENSE, "E dyta", Decimal("2"), "02-06-2026", "Qera")
+        app.add_transaction(EXPENSE, "E treta", Decimal("3"), "03-06-2026", "Qera")
+        app.delete_transaction(first.id)
+        capsys.readouterr()
+        # Row 1 is now "E dyta", kept as 2; row 2 is "E treta", kept as 3.
+        return app
+
+    def test_editing(self, gap, answers, capsys):
+        answers("2", "anulo")
+        edit_transaction(gap)
+        shown = capsys.readouterr().out
+        assert "Duke ndryshuar transaksionin #2" in shown
+        assert "#3" not in shown
+
+    def test_the_history_of_one(self, gap, answers, capsys):
+        from personal_finance.ui import show_transaction_history
+
+        answers("2")
+        show_transaction_history(gap)
+        shown = capsys.readouterr().out
+        assert "Historiku i transaksionit #2" in shown
+        assert "#3" not in shown
+
+    def test_the_history_of_everything_still_uses_the_kept_number(self, gap, capsys):
+        """Deleted rows have no row number, so the full history cannot use one."""
+        from personal_finance.ui import show_recent_history
+
+        show_recent_history(gap)
+        assert "#3" in capsys.readouterr().out
+
+
 class TestTransferFlow:
     def test_needs_two_accounts(self, app, capsys):
         app.add_account("Banka", BANK, Decimal("0"))
