@@ -455,6 +455,24 @@ class Database:
                 return False
         return True
 
+    # -- preferences ---------------------------------------------------------
+
+    def typing_effect(self, user_id=None):
+        """Whether text is typed out for this user. On unless switched off."""
+        row = self.connection.execute(
+            "SELECT typing_effect FROM preferences WHERE user_id = ?",
+            (user_id if user_id is not None else self._user_id,),
+        ).fetchone()
+        return True if row is None else bool(row[0])
+
+    def set_typing_effect(self, on, user_id=None):
+        with self._writing() as conn:
+            conn.execute(
+                "INSERT INTO preferences (user_id, typing_effect) VALUES (?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET typing_effect = excluded.typing_effect",
+                (user_id if user_id is not None else self._user_id, int(bool(on))),
+            )
+
     # -- accounts ----------------------------------------------------------
 
     @staticmethod

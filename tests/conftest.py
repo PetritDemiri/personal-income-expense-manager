@@ -20,7 +20,7 @@ def own_folders(tmp_path_factory, monkeypatch):
     A test that wants a default back deletes the variable itself.
 
     The first-launch tests are switched off too: the suite must never start
-    itself.
+    itself. So is the typing effect.
     """
     home = tmp_path_factory.mktemp("financat")
     documents = home / "Documents"
@@ -29,6 +29,9 @@ def own_folders(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("FINANCE_DATA_DIR", str(home / "Te dhenat"))
     monkeypatch.setenv("FINANCE_EXPORT_DIR", str(documents))
     monkeypatch.setenv("FINANCE_SKIP_TESTS", "1")
+    # And text is never typed out: the suite would crawl, and a terminal test
+    # switches it back on for itself.
+    monkeypatch.setenv("FINANCE_TYPING", "0")
 
 
 @pytest.fixture

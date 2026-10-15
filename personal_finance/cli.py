@@ -9,7 +9,7 @@ import contextlib
 import os
 import sys
 
-from . import colors, console
+from . import colors, console, typewriter
 from .accounts import balances_for, count_unassigned, find_account
 from .app import FinanceApp
 from .budgets import all_statuses
@@ -586,8 +586,8 @@ def run_sessions(app):
             # their own data at all.
             chosen = choose_user(app)
             if chosen is None:
-                print()
-                print(paint(t("goodbye"), CYAN))
+                typewriter.say()
+                typewriter.say(paint(t("goodbye"), CYAN))
                 return True
             app.use_user(chosen)
             if not sign_in_as(app, chosen):
@@ -830,6 +830,8 @@ def main(argv=None):
 
     if attended:
         console.set_title(t("window_title"))
+    # Text typed out as it appears - for a person, never for a script.
+    typewriter.allow(attended)
     try:
         code = run_program(args, interactive, attended)
     except Exception:
@@ -843,6 +845,7 @@ def main(argv=None):
         console.report_crash(path)
         code = 1
     finally:
+        typewriter.allow(False)
         if attended:
             console.restore_title()
 
@@ -880,7 +883,7 @@ def run_program(args, interactive, attended):
     if not args.perserit:
         generated = app.process_recurring()
         if generated and interactive:
-            print(paint(t("generated", count=len(generated)), BOLD))
+            typewriter.say(paint(t("generated", count=len(generated)), BOLD))
 
     # A database nobody has claimed cannot be worked in. The setup is
     # interactive by nature - a generated password has to be read from a file

@@ -246,6 +246,69 @@ class TestRunningARealSuite:
         assert run_suite(tiny).outcome == NOT_RUN
 
 
+class TestInsideTheExe:
+    """The .exe has no Python beside it to start pytest with. Its first launch
+    starts the .exe itself, in its test mode, which runs pytest inside it.
+
+    Whether this is the .exe is set by hand in each test: these tests also run
+    inside the .exe, the first time it opens.
+    """
+
+    @pytest.fixture
+    def started(self, monkeypatch):
+        """What run_suite would have started, without starting anything."""
+        commands = []
+
+        def record(command, **_kwargs):
+            commands.append(command)
+
+        monkeypatch.setattr(selftest.subprocess, "run", record)
+        return commands
+
+    @staticmethod
+    def without_report(command):
+        return [part for part in command if not part.startswith("--junit-xml=")]
+
+    def test_a_copy_of_the_source_starts_python(self, started, monkeypatch, tmp_path):
+        monkeypatch.delattr(sys, "frozen", raising=False)
+        run_suite(str(tmp_path / "tests"))
+        assert started[0][:3] == [sys.executable, "-m", "pytest"]
+
+    def test_the_exe_starts_itself_in_its_test_mode(self, started, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        run_suite(str(tmp_path / "tests"))
+        assert started[0][:2] == [sys.executable, selftest.TEST_MODE]
+
+    def test_both_run_the_same_tests_the_same_way(self, started, monkeypatch, tmp_path):
+        tests = str(tmp_path / "tests")
+        monkeypatch.delattr(sys, "frozen", raising=False)
+        run_suite(tests)
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        run_suite(tests)
+        source, exe = (self.without_report(command) for command in started)
+        assert source[3:] == exe[2:] == selftest.pytest_arguments(tests)
+        assert source[3] == tests
+
+    def test_the_test_mode_runs_pytest_inside(self, monkeypatch):
+        given = []
+        monkeypatch.setattr(pytest, "main", lambda arguments: given.append(arguments) or 3)
+        assert selftest.run_inside(["tests", "-q"]) == 3
+        assert given == [["tests", "-q"]]
+
+    def test_on_its_own_it_runs_the_suite_packed_inside(self, monkeypatch):
+        """How a release is checked before it is published."""
+        given = []
+        monkeypatch.setattr(pytest, "main", lambda arguments: given.append(arguments) or 0)
+        assert selftest.run_inside([]) == 0
+        assert given == [selftest.pytest_arguments(selftest.tests_directory())]
+
+    def test_a_copy_without_tests_says_so(self, monkeypatch, capsys):
+        monkeypatch.setattr(selftest, "tests_directory", lambda: None)
+        monkeypatch.setattr(pytest, "main", lambda _arguments: pytest.fail("ran"))
+        assert selftest.run_inside([]) == pytest.ExitCode.USAGE_ERROR
+        assert "no tests" in capsys.readouterr().err
+
+
 class TestTheFirstLaunch:
     def test_they_run_once_and_never_again(self, first_launch, capsys):
         run = FakeRun(Result(RAN, passed=12))

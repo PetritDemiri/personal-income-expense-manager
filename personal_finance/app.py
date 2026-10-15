@@ -504,6 +504,15 @@ class FinanceApp:
             filled += 1
         return filled
 
+    # -- preferences ---------------------------------------------------------
+
+    def typing_effect(self):
+        """Whether the signed-in person has text typed out. On unless switched off."""
+        return self.db.typing_effect()
+
+    def set_typing_effect(self, on):
+        self.db.set_typing_effect(on)
+
     # -- accounts ----------------------------------------------------------
 
     def accounts(self):

@@ -46,7 +46,7 @@ gone.
 
 import re
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # The single user a database gains when it is upgraded from before users
 # existed. Everything already stored becomes theirs.
@@ -57,6 +57,17 @@ DEFAULT_USER_NAME = "Une"
 INCOME = "Te Ardhura"
 EXPENSE = "Shpenzime"
 TRANSFER = "Transferim"
+
+# Each person's own settings for how the program behaves for them. Not
+# financial data: not audited, and not a reason to keep an account. A user
+# with no row here has every setting at its default.
+PREFERENCES = """
+CREATE TABLE IF NOT EXISTS preferences (
+    user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    -- Whether text appears as if typed. On unless switched off.
+    typing_effect INTEGER NOT NULL DEFAULT 1
+);
+"""
 
 SCHEMA = f"""
 -- One person's finances. Someone with a password is asked for it at the
@@ -257,6 +268,7 @@ CREATE INDEX idx_transactions_to_account ON transactions(to_account_id);
 CREATE INDEX idx_subcategories_category  ON subcategories(category_id);
 CREATE INDEX idx_audit_entity            ON audit_log(entity, entity_id);
 CREATE INDEX idx_rules_category           ON category_rules(category_id);
+{PREFERENCES}
 CREATE INDEX idx_sessions_user            ON sessions(user_id);
 CREATE INDEX idx_resets_user              ON password_resets(user_id);
 """
@@ -604,6 +616,11 @@ def _migration_10(connection):
     connection.executescript(audit_triggers("users", AUDITED_TABLES["users"]))
 
 
+def _migration_11(connection):
+    """Each person's own settings - to begin with, whether text is typed out."""
+    connection.executescript(PREFERENCES)
+
+
 MIGRATIONS = {
     4: _migration_4,
     5: _migration_5,
@@ -612,6 +629,7 @@ MIGRATIONS = {
     8: _migration_8,
     9: _migration_9,
     10: _migration_10,
+    11: _migration_11,
 }
 
 

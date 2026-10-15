@@ -8,11 +8,11 @@ The two must not be conflated: ids develop gaps as things are deleted, and a
 menu that showed them would look broken.
 """
 
-import getpass
 import os
 import re
 from decimal import Decimal
 
+from . import typewriter
 from .accounts import balances_for, count_unassigned, find_account
 from .budgets import all_statuses
 from .charts import SPANS, account_bars, category_bars, monthly_bars
@@ -58,6 +58,7 @@ from .passwords import CODE_ALPHABET, CODE_LENGTH
 from .recurring import FREQUENCIES
 from .reports import calculate_totals, month_report, sort_by_date
 from .schema import EXPENSE, INCOME, TRANSFER
+from .typewriter import ask, roll, say, secret
 
 # The cancel word is language-dependent and lives in the message catalog; see
 # i18n.cancels(). Every check below compares the input exactly as typed - not
@@ -92,9 +93,9 @@ def pick(app, message):
     print_transactions(numbered(rows))
     if not rows:
         return None
-    typed = input(message)
+    typed = ask(message)
     if typed in cancels():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return None
     position = whole_number(typed.strip())
     if position is None or not 1 <= position <= len(rows):
@@ -131,7 +132,7 @@ def hint(*keys):
     accepts, so the reader never has to remember which stage allows what.
     """
     for key in keys:
-        print(paint(f"  {t(key)}", DIM))
+        roll(paint(f"  {t(key)}", DIM))
 
 
 def run_stages(stages):
@@ -161,9 +162,9 @@ def run_stages(stages):
 def prompt_description(current=None):
     while True:
         if current is None:
-            value = input(t("ask_description"))
+            value = ask(t("ask_description"))
         else:
-            value = input(t("ask_description_keep", current=current))
+            value = ask(t("ask_description_keep", current=current))
             if not value.strip():
                 return current
         if value in cancels():
@@ -176,9 +177,9 @@ def prompt_description(current=None):
 def prompt_amount(current=None):
     while True:
         if current is None:
-            raw = input(t("ask_amount"))
+            raw = ask(t("ask_amount"))
         else:
-            raw = input(t("ask_amount_keep", current=f"{current:.2f}"))
+            raw = ask(t("ask_amount_keep", current=f"{current:.2f}"))
             if not raw.strip():
                 return current
         if raw in cancels():
@@ -198,7 +199,7 @@ def prompt_date(current=None):
             # Compared exactly as typed - not lowercased, not stripped. Both
             # would quietly accept something the user did not write: "PO", or
             # " po " with spaces around it.
-            choice = input(t("ask_today"))
+            choice = ask(t("ask_today"))
             if choice in cancels():
                 return BACK
             if choice in affirmatives():
@@ -209,9 +210,9 @@ def prompt_date(current=None):
 
     while True:
         if current is None:
-            raw = input(t("ask_date"))
+            raw = ask(t("ask_date"))
         else:
-            raw = input(t("ask_date_keep", current=current))
+            raw = ask(t("ask_date_keep", current=current))
             if not raw.strip():
                 return current
         if raw in cancels():
@@ -229,12 +230,12 @@ def prompt_kind(current=None, can_go_back=False):
     like any other wrong answer, as it always was.
     """
     while True:
-        print(f"  1. {type_label(INCOME)}")
-        print(f"  2. {type_label(EXPENSE)}")
+        roll(f"  1. {type_label(INCOME)}")
+        roll(f"  2. {type_label(EXPENSE)}")
         if current is None:
-            typed = input(t("choose_type"))
+            typed = ask(t("choose_type"))
         else:
-            typed = input(t("type_prompt_keep", current=type_label(current)))
+            typed = ask(t("type_prompt_keep", current=type_label(current)))
         if can_go_back and typed in cancels():
             return BACK
         raw = typed.strip()
@@ -270,22 +271,22 @@ def prompt_category(app, kind, current=None, description=None, carried=False, re
         rule = app.rule_for(description)
         if rule is not None and not (carried and rule.category == current):
             shown = rule.category + (f" / {rule.subcategory}" if rule.subcategory else "")
-            print(paint(t("rule_suggestion", category=shown), DIM))
+            say(paint(t("rule_suggestion", category=shown), DIM))
 
     options = app.category_names(kind)
     if options:
-        print(f"\n{t('suggested_categories')}")
+        say(f"\n{t('suggested_categories')}")
         for index, name in enumerate(options, start=1):
-            print(f"  {index}. {name}")
+            roll(f"  {index}. {name}")
     hint("hint_own_category")
 
     while True:
         # Validated exactly as typed. Stripping first would silently accept
         # " Ushqim ", and the stored name would not be the one entered.
         typed = (
-            input(t("ask_category"))
+            ask(t("ask_category"))
             if current is None
-            else input(t("ask_category_keep", current=current))
+            else ask(t("ask_category_keep", current=current))
         )
 
         if typed in cancels():
@@ -323,9 +324,9 @@ def prompt_subcategory(app, kind, category, current=None):
 
     options = app.subcategory_names(category, kind)
     if options:
-        print(f"\n{t('suggested_subcategories')}")
+        say(f"\n{t('suggested_subcategories')}")
         for index, name in enumerate(options, start=1):
-            print(f"  {index}. {name}")
+            roll(f"  {index}. {name}")
     hints = ["hint_own_subcategory"]
     if current is None:
         hints.append("hint_skip_subcategory")
@@ -333,9 +334,9 @@ def prompt_subcategory(app, kind, category, current=None):
 
     while True:
         typed = (
-            input(t("ask_subcategory"))
+            ask(t("ask_subcategory"))
             if current is None
-            else input(t("ask_subcategory_keep", current=current or t("no_subcategory")))
+            else ask(t("ask_subcategory_keep", current=current or t("no_subcategory")))
         )
 
         if typed in cancels():
@@ -360,9 +361,9 @@ def prompt_subcategory(app, kind, category, current=None):
 def prompt_account(app, current=None, message_key="ask_account", allow_skip=True):
     """Ask which account something belongs to. Returns an id, or None."""
     accounts = app.accounts()
-    print(f"\n{t('accounts_title')}")
+    say(f"\n{t('accounts_title')}")
     for index, account in enumerate(accounts, start=1):
-        print(f"  {index}. {account.name}")
+        roll(f"  {index}. {account.name}")
     if allow_skip and current is None:
         hint("hint_skip_account")
 
@@ -373,13 +374,13 @@ def prompt_account(app, current=None, message_key="ask_account", allow_skip=True
 
     while True:
         if current is None:
-            raw = input(t(message_key)).strip()
+            raw = ask(t(message_key)).strip()
             if raw in cancels():
                 return BACK
             if not raw and allow_skip:
                 return None
         else:
-            raw = input(
+            raw = ask(
                 t("ask_account_keep", current=current_name or t("no_account_display"))
             ).strip()
             if raw in cancels():
@@ -410,9 +411,9 @@ def prompt_account_name(app, current=None, account_id=None):
     """
     while True:
         if current is None:
-            typed = input(t("ask_account_name"))
+            typed = ask(t("ask_account_name"))
         else:
-            typed = input(t("ask_account_name_keep", current=current))
+            typed = ask(t("ask_account_name_keep", current=current))
         if typed in cancels():
             return BACK
         name = typed.strip()
@@ -430,11 +431,11 @@ def prompt_account_name(app, current=None, account_id=None):
 
 def prompt_account_kind(current=None):
     """Cash, bank or card. BACK if cancelled."""
-    print(f"\n{t('field_type')}:")
+    say(f"\n{t('field_type')}:")
     for index, name in enumerate(ACCOUNT_KINDS, start=1):
-        print(f"  {index}. {name}")
+        roll(f"  {index}. {name}")
     while True:
-        typed = input(t("ask_account_type", count=len(ACCOUNT_KINDS)))
+        typed = ask(t("ask_account_type", count=len(ACCOUNT_KINDS)))
         if typed in cancels():
             return BACK
         raw = typed.strip()
@@ -450,9 +451,9 @@ def prompt_opening_balance(current=None):
     """Ask for an opening balance, which may legitimately be negative. BACK if cancelled."""
     while True:
         if current is None:
-            typed = input(t("ask_opening"))
+            typed = ask(t("ask_opening"))
         else:
-            typed = input(t("ask_opening_keep", current=f"{current:.2f}"))
+            typed = ask(t("ask_opening_keep", current=f"{current:.2f}"))
         if typed in cancels():
             return BACK
         raw = typed.strip()
@@ -468,9 +469,9 @@ def prompt_opening_balance(current=None):
 
 def prompt_index(count, message):
     """Ask for a 1-based number in range. Returns a 0-based index or None."""
-    typed = input(message)
+    typed = ask(message)
     if typed in cancels():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return None
     try:
         number = int(typed)
@@ -483,7 +484,7 @@ def prompt_index(count, message):
 
 
 def prompt_menu_choice(low, high):
-    return input(t("choose", range=f"{low}-{high}")).strip()
+    return ask(t("choose", range=f"{low}-{high}")).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -536,13 +537,13 @@ def add_transactions(app, kind):
     out; then they are saved together, all of them or none. One is saved
     straight away, as before - a list of one would only be a question more.
     """
-    print(paint(f"\n{t('adding', type=type_label(kind))}", BOLD))
+    say(paint(f"\n{t('adding', type=type_label(kind))}", BOLD))
     hint("hint_cancel")
 
     while True:
         count = prompt_how_many(kind)
         if count is BACK:
-            print(t("cancelled"))
+            say(t("cancelled"))
             return
         entries = ask_entries(app, kind, count)
         if entries is not None:
@@ -560,7 +561,7 @@ def prompt_how_many(kind):
     hint("hint_how_many")
     question = "ask_how_many_income" if kind == INCOME else "ask_how_many_expense"
     while True:
-        typed = input(t(question))
+        typed = ask(t(question))
         if typed in cancels():
             return BACK
         if typed == "":
@@ -573,9 +574,9 @@ def prompt_how_many(kind):
 
 def prompt_another():
     """Whether to add one more, when how many was not said. True, False or BACK."""
-    print()
+    say()
     while True:
-        typed = input(t("ask_another"))
+        typed = ask(t("ask_another"))
         if typed in cancels():
             return BACK
         if typed in affirmatives():
@@ -656,9 +657,9 @@ def ask_entries(app, kind, count):
         number = len(entries) + 1
         if shown != number:
             if count == 1:
-                print()
+                say()
             else:
-                print(paint(f"\n{entry_heading(kind, number, count)}", BOLD))
+                say(paint(f"\n{entry_heading(kind, number, count)}", BOLD))
             shown = number
 
         name, ask = stages[index]
@@ -695,15 +696,15 @@ def review_entries(app, kind, entries):
     entries = list(entries)
     while True:
         print_entries(app, kind, entries)
-        print()
-        print(paint(t("review_commands"), DIM))
+        say()
+        roll(paint(t("review_commands"), DIM))
         for key in REVIEW_COMMAND_KEYS:
-            print(paint(t(key), DIM))
+            roll(paint(t(key), DIM))
 
-        print()
-        typed = input(t("review_choose"))
+        say()
+        typed = ask(t("review_choose"))
         if typed in cancels():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return None
         choice = typed.strip()
         if choice in SAVE_WORDS:
@@ -728,7 +729,7 @@ def review_entries(app, kind, entries):
                 continue
             entries = [e for n, e in enumerate(entries, start=1) if n not in positions]
             if not entries:
-                print(paint(t("review_empty"), YELLOW))
+                say(paint(t("review_empty"), YELLOW))
                 return None
             continue
 
@@ -768,11 +769,11 @@ def print_entries(app, kind, entries):
 
 def change_entry(app, kind, entry, position):
     """Ask for a row of the list again, offering what it holds. None if cancelled."""
-    print(paint(f"\n{t('review_editing', number=position)}", BOLD))
-    print(paint(t("press_enter_keep"), DIM))
+    say(paint(f"\n{t('review_editing', number=position)}", BOLD))
+    say(paint(t("press_enter_keep"), DIM))
     answers = run_stages(change_stages(app, dict(entry, kind=kind)))
     if answers is None:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return None
     return answers
 
@@ -781,13 +782,13 @@ def save_entries(app, kind, entries):
     """Write what was entered and say so - with any budget it took near or over."""
     if len(entries) == 1:
         transaction = app.add_transaction(kind, **entries[0])
-        print(paint(t("added", type=type_label(kind)), BOLD))
+        say(paint(t("added", type=type_label(kind)), BOLD))
         print_budget_warning(app.budget_warning(transaction))
         return
 
     saved = app.add_transactions(kind, entries)
     message = "added_several_income" if kind == INCOME else "added_several_expense"
-    print(paint(t(message, count=len(saved)), BOLD))
+    say(paint(t(message, count=len(saved)), BOLD))
     for status in app.budget_warnings(saved):
         print_budget_warning(status)
 
@@ -811,7 +812,7 @@ def change_stages(app, current, ask_kind=False):
         return answers.get("kind", current["kind"])
 
     def ask_type(_answers):
-        print(f"\n{t('field_type')}:")
+        say(f"\n{t('field_type')}:")
         return prompt_kind(current=current["kind"], can_go_back=True)
 
     def subcategory(answers):
@@ -845,8 +846,8 @@ def edit_transaction(app):
         return
     position, chosen = picked
 
-    print(paint(f"\n{t('editing', number=position)}", BOLD))
-    print(paint(t("press_enter_keep"), DIM))
+    say(paint(f"\n{t('editing', number=position)}", BOLD))
+    say(paint(t("press_enter_keep"), DIM))
 
     current = {
         "kind": chosen.kind,
@@ -859,11 +860,11 @@ def edit_transaction(app):
     }
     changes = run_stages(change_stages(app, current, ask_kind=True))
     if changes is None:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
 
     app.update_transaction(chosen.id, **changes)
-    print(paint(t("edited"), BOLD))
+    say(paint(t("edited"), BOLD))
 
 
 ROW_EXAMPLE_KEYS = ("rows_single", "rows_several", "rows_range", "rows_mixed")
@@ -876,9 +877,9 @@ def print_rows_guide(indent=""):
     be typed without saying which part is a list and which is a range. The
     indent lets the same four lines sit inside a longer list of commands.
     """
-    print(paint(f"{indent}{t('rows_guide')}", DIM))
+    roll(paint(f"{indent}{t('rows_guide')}", DIM))
     for key in ROW_EXAMPLE_KEYS:
-        print(paint(f"{indent}{t(key)}", DIM))
+        roll(paint(f"{indent}{t(key)}", DIM))
 
 
 def parse_positions(typed, count):
@@ -937,14 +938,14 @@ def delete_transaction(app):
     if not rows:
         return
 
-    print()
+    say()
     print_rows_guide()
     hint("hint_cancel_task")
 
-    print()
-    typed = input(t("ask_numbers_delete"))
+    say()
+    typed = ask(t("ask_numbers_delete"))
     if typed in cancels():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
 
     positions = parse_positions(typed, len(rows))
@@ -954,9 +955,9 @@ def delete_transaction(app):
 
     chosen = [rows[position - 1] for position in positions]
     if len(chosen) > 1:
-        answer = input(t("confirm_delete_several", count=len(chosen))).strip()
+        answer = ask(t("confirm_delete_several", count=len(chosen))).strip()
         if answer not in affirmatives():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return
 
     # Kept from before the deletion, so the table below can show the numbers
@@ -964,10 +965,10 @@ def delete_transaction(app):
     listed = numbered(rows, sorted(chosen, key=lambda view: rows.index(view)))
 
     removed = [app.delete_transaction(view.id) for view in chosen]
-    print()
+    say()
     if len(removed) == 1:
         one = removed[0]
-        print(
+        say(
             paint(
                 t(
                     "deleted",
@@ -981,7 +982,7 @@ def delete_transaction(app):
         )
         return
 
-    print(paint(t("deleted_several", count=len(removed)), BOLD))
+    say(paint(t("deleted_several", count=len(removed)), BOLD))
     print_transactions(listed, title=t("deleted_title"))
 
 
@@ -999,9 +1000,9 @@ def show_filtered(app, start, end, title):
 
 def filter_single_date(app):
     while True:
-        raw = input(t("filter_date"))
+        raw = ask(t("filter_date"))
         if raw in cancels():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return
         target = parse_date(raw)
         if target is None:
@@ -1013,9 +1014,9 @@ def filter_single_date(app):
 
 def filter_date_range(app):
     while True:
-        raw = input(t("filter_start"))
+        raw = ask(t("filter_start"))
         if raw in cancels():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return
         start = parse_date(raw)
         if start is None:
@@ -1024,9 +1025,9 @@ def filter_date_range(app):
         break
 
     while True:
-        raw = input(t("filter_end"))
+        raw = ask(t("filter_end"))
         if raw in cancels():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return
         end = parse_date(raw)
         if end is None:
@@ -1046,7 +1047,7 @@ def filter_date_range(app):
 
 
 def search_transactions(app):
-    term = input(t("ask_search")).strip()
+    term = ask(t("ask_search")).strip()
     matches = app.transactions(search=term) if term else []
     print_transactions(
         numbered(app.transactions(), matches),
@@ -1057,10 +1058,10 @@ def search_transactions(app):
 
 
 def filter_menu(app):
-    print(paint(f"\n{t('filter_menu_title')}", BOLD, CYAN))
-    print(f"1. {t('filter_single')}")
-    print(f"2. {t('filter_range')}")
-    print(f"3. {t('back')}")
+    say(paint(f"\n{t('filter_menu_title')}", BOLD, CYAN))
+    roll(f"1. {t('filter_single')}")
+    roll(f"2. {t('filter_range')}")
+    roll(f"3. {t('back')}")
 
     choice = prompt_menu_choice(1, 3)
     if choice == "1":
@@ -1087,34 +1088,34 @@ def export_to_csv(app):
 
     rows = app.transactions()
     if not rows:
-        print(paint(t("export_empty"), YELLOW))
+        say(paint(t("export_empty"), YELLOW))
         return
 
-    print(paint(f"\n{t('export_title')}", BOLD, CYAN))
+    say(paint(f"\n{t('export_title')}", BOLD, CYAN))
     hint("hint_cancel_task")
-    path = input(t("ask_export_path")).strip()
+    path = ask(t("ask_export_path")).strip()
     if not path or path in cancels():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
 
     # Resolved before the check, so the prompt names the file that would
     # actually be replaced rather than the name that was typed.
     target = resolve_export_path(path)
     if os.path.exists(target):
-        answer = input(t("export_overwrite", path=target)).strip()
+        answer = ask(t("export_overwrite", path=target)).strip()
         if answer.lower() not in affirmatives():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return
 
-    answer = input(t("ask_export_filter")).strip()
+    answer = ask(t("ask_export_filter")).strip()
     if answer in cancels():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
     if answer.lower() in affirmatives():
         while True:
-            raw = input(t("filter_start"))
+            raw = ask(t("filter_start"))
             if raw in cancels():
-                print(t("cancelled"))
+                say(t("cancelled"))
                 return
             start = parse_date(raw)
             if start is None:
@@ -1122,9 +1123,9 @@ def export_to_csv(app):
                 continue
             break
         while True:
-            raw = input(t("filter_end"))
+            raw = ask(t("filter_end"))
             if raw in cancels():
-                print(t("cancelled"))
+                say(t("cancelled"))
                 return
             end = parse_date(raw)
             if end is None:
@@ -1141,7 +1142,7 @@ def export_to_csv(app):
     except Exception as error:
         print(paint(t("export_failed", error=error), RED))
         return
-    print(paint(t("exported", count=count, path=written_to), BOLD))
+    say(paint(t("exported", count=count, path=written_to), BOLD))
 
 
 # ---------------------------------------------------------------------------
@@ -1155,11 +1156,11 @@ def show_month_report(app, year, month):
 
 def report_menu(app):
     year, month = month_of(today())
-    print(paint(f"\n{t('menu_report')}:", BOLD, CYAN))
-    print(f"1. {t('report_menu_this')}")
-    print(f"2. {t('report_menu_last')}")
-    print(f"3. {t('report_menu_choose')}")
-    print(f"4. {t('back')}")
+    say(paint(f"\n{t('menu_report')}:", BOLD, CYAN))
+    roll(f"1. {t('report_menu_this')}")
+    roll(f"2. {t('report_menu_last')}")
+    roll(f"3. {t('report_menu_choose')}")
+    roll(f"4. {t('back')}")
 
     choice = prompt_menu_choice(1, 4)
     if choice == "1":
@@ -1168,7 +1169,7 @@ def report_menu(app):
         earlier_year, earlier_month = previous_month(year, month)
         show_month_report(app, earlier_year, earlier_month)
     elif choice == "3":
-        parsed = parse_month(input(t("ask_month")).strip())
+        parsed = parse_month(ask(t("ask_month")).strip())
         if parsed is None:
             print(paint(t("invalid_month"), RED))
             return
@@ -1189,7 +1190,7 @@ def show_accounts(app):
 
 
 def add_account(app):
-    print(paint(f"\n{t('adding_account')}", BOLD))
+    say(paint(f"\n{t('adding_account')}", BOLD))
     answers = run_stages(
         [
             ("name", lambda _v: prompt_account_name(app)),
@@ -1198,24 +1199,24 @@ def add_account(app):
         ]
     )
     if answers is None:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
     app.add_account(answers["name"], answers["kind"], answers["opening"])
-    print(paint(t("account_added", name=answers["name"]), BOLD))
+    say(paint(t("account_added", name=answers["name"]), BOLD))
 
 
 def edit_account(app):
     show_accounts(app)
     accounts = app.accounts()
     if not accounts:
-        print(paint(t("no_accounts_to_change"), YELLOW))
+        say(paint(t("no_accounts_to_change"), YELLOW))
         return
     index = prompt_index(len(accounts), t("ask_number_account"))
     if index is None:
         return
 
     account = accounts[index]
-    print(paint(t("press_enter_keep"), DIM))
+    say(paint(t("press_enter_keep"), DIM))
 
     # Stepping back offers the answer just given, as editing a transaction does.
     answers = run_stages(
@@ -1234,61 +1235,61 @@ def edit_account(app):
         ]
     )
     if answers is None:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
     app.update_account(
         account.id, name=answers["name"], kind=answers["kind"], opening=answers["opening"]
     )
-    print(paint(t("account_updated"), BOLD))
+    say(paint(t("account_updated"), BOLD))
 
 
 def delete_account(app):
     show_accounts(app)
     accounts = app.accounts()
     if not accounts:
-        print(paint(t("no_accounts_to_delete"), YELLOW))
+        say(paint(t("no_accounts_to_delete"), YELLOW))
         return
     index = prompt_index(len(accounts), t("ask_number_account"))
     if index is None:
         return
     removed, affected = app.delete_account(accounts[index].id)
-    print(paint(t("account_deleted", name=removed.name, count=affected), YELLOW))
+    say(paint(t("account_deleted", name=removed.name, count=affected), YELLOW))
 
 
 def assign_unassigned_transactions(app):
     """Move every account-less transaction onto a chosen account."""
     if not app.has_accounts():
-        print(paint(t("no_accounts_to_change"), YELLOW))
+        say(paint(t("no_accounts_to_change"), YELLOW))
         return
 
     pending = count_unassigned(app.transactions(), app.recurring_rules())
     if not pending:
-        print(paint(t("nothing_unassigned"), YELLOW))
+        say(paint(t("nothing_unassigned"), YELLOW))
         return
 
     target_id = prompt_account(app, allow_skip=False)
     if target_id is BACK:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
     target = [a for a in app.accounts() if a.id == target_id][0]
 
-    answer = input(t("assign_confirm", count=pending, name=target.name)).strip().lower()
+    answer = ask(t("assign_confirm", count=pending, name=target.name)).strip().lower()
     if answer not in affirmatives():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
 
     assigned = app.assign_unassigned_to(target_id)
-    print(paint(t("assigned", count=assigned, name=target.name), BOLD))
+    say(paint(t("assigned", count=assigned, name=target.name), BOLD))
 
 
 def add_transfer(app):
     """Record a movement between two of the user's own accounts."""
     accounts = app.accounts()
     if len(accounts) < 2:
-        print(paint(t("transfer_needs_two"), YELLOW))
+        say(paint(t("transfer_needs_two"), YELLOW))
         return
 
-    print(paint(f"\n{t('adding_transfer')}", BOLD))
+    say(paint(f"\n{t('adding_transfer')}", BOLD))
 
     def destination(answers):
         while True:
@@ -1307,7 +1308,7 @@ def add_transfer(app):
         ]
     )
     if answers is None:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
 
     app.add_transaction(
@@ -1318,18 +1319,18 @@ def add_transfer(app):
         account_id=answers["source"],
         to_account_id=answers["destination"],
     )
-    print(paint(t("transfer_added"), BOLD))
+    say(paint(t("transfer_added"), BOLD))
 
 
 def account_menu(app):
     while True:
-        print(paint(f"\n{t('menu_accounts')}:", BOLD, CYAN))
-        print(f"1. {t('account_menu_view')}")
-        print(f"2. {t('account_menu_add')}")
-        print(f"3. {t('account_menu_edit')}")
-        print(f"4. {t('account_menu_delete')}")
-        print(f"5. {t('account_menu_assign')}")
-        print(f"6. {t('back')}")
+        say(paint(f"\n{t('menu_accounts')}:", BOLD, CYAN))
+        roll(f"1. {t('account_menu_view')}")
+        roll(f"2. {t('account_menu_add')}")
+        roll(f"3. {t('account_menu_edit')}")
+        roll(f"4. {t('account_menu_delete')}")
+        roll(f"5. {t('account_menu_assign')}")
+        roll(f"6. {t('back')}")
 
         choice = prompt_menu_choice(1, 6)
         if choice == "1":
@@ -1357,9 +1358,9 @@ def prompt_span():
     """Ask over how many months to draw. None if cancelled."""
     spans = ", ".join(str(s) for s in SPANS)
     while True:
-        raw = input(t("ask_span", spans=spans))
+        raw = ask(t("ask_span", spans=spans))
         if raw in cancels():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return None
         if whole_number(raw) in SPANS:
             return whole_number(raw)
@@ -1388,12 +1389,12 @@ def show_account_chart(app):
 
 def charts_menu(app):
     while True:
-        print(paint(f"\n{t('menu_charts')}:", BOLD, CYAN))
-        print(f"1. {t('chart_menu_categories')}")
-        print(f"2. {t('chart_menu_income')}")
-        print(f"3. {t('chart_menu_months')}")
-        print(f"4. {t('chart_menu_accounts')}")
-        print(f"5. {t('back')}")
+        say(paint(f"\n{t('menu_charts')}:", BOLD, CYAN))
+        roll(f"1. {t('chart_menu_categories')}")
+        roll(f"2. {t('chart_menu_income')}")
+        roll(f"3. {t('chart_menu_months')}")
+        roll(f"4. {t('chart_menu_accounts')}")
+        roll(f"5. {t('back')}")
 
         choice = prompt_menu_choice(1, 5)
         if choice == "1":
@@ -1438,24 +1439,24 @@ def run_first_setup(app):
         # an owner already and nothing to set up.
         return True
 
-    print(paint(f"\n{t('setup_title')}", BOLD, CYAN))
-    print(t("setup_intro"))
+    say(paint(f"\n{t('setup_title')}", BOLD, CYAN))
+    say(t("setup_intro"))
 
     name, _password, path = app.create_admin()
     user_id, _ = app.pending_admin()
 
-    print()
-    print(paint(t("setup_written", path=path), BOLD, CYAN))
-    print()
-    print(paint(t("setup_name", name=name), BOLD))
-    print()
-    print(paint(t("setup_expires", minutes=SETUP_MINUTES, attempts=SETUP_ATTEMPTS), DIM))
-    print()
+    say()
+    say(paint(t("setup_written", path=path), BOLD, CYAN))
+    say()
+    say(paint(t("setup_name", name=name), BOLD))
+    say()
+    say(paint(t("setup_expires", minutes=SETUP_MINUTES, attempts=SETUP_ATTEMPTS), DIM))
+    say()
 
     while True:
         typed = prompt_code(t("ask_setup_password"), SETUP_LENGTH, allowed=CODE_ALPHABET)
         if typed is None:
-            print(t("cancelled"))
+            say(t("cancelled"))
             return False
         outcome, left = app.check_setup_password(typed)
         if outcome == ResetOutcome.OK:
@@ -1467,8 +1468,8 @@ def run_first_setup(app):
         print(paint(t(key), RED))
         return False
 
-    print(paint(f"\n{t('setup_claim')}", BOLD))
-    print()
+    say(paint(f"\n{t('setup_claim')}", BOLD))
+    say()
     chosen = prompt_name("ask_new_user_name")
     if chosen is None:
         return False
@@ -1477,8 +1478,8 @@ def run_first_setup(app):
         return False
 
     app.complete_setup(user_id, chosen, password, path)
-    print()
-    print(paint(t("setup_done", name=chosen), BOLD, GREEN))
+    say()
+    say(paint(t("setup_done", name=chosen), BOLD, GREEN))
     return True
 
 
@@ -1501,25 +1502,27 @@ def register_user(app):
         return None
 
     user_id = app.add_user(name, password)
-    print(paint(t("user_created", name=name), BOLD))
+    say(paint(t("user_created", name=name), BOLD))
     return user_id
 
 
 def choose_user(app):
     """Ask who is using the program. Returns a user id, or None to stop."""
+    # The screen belongs to nobody yet, so nobody's choice applies to it.
+    typewriter.prefer(True)
     while True:
         users = app.users()
-        print(paint(f"\n{t('who_are_you')}", BOLD, CYAN))
+        say(paint(f"\n{t('who_are_you')}", BOLD, CYAN))
         for index, user in enumerate(users, start=1):
             role = t("role_admin") if user.is_admin else t("role_user")
-            print(f"  {index}. {user.name}  {paint('(' + role + ')', DIM)}")
-        print(f"  {len(users) + 1}. {t('user_new')}")
+            roll(f"  {index}. {user.name}  {paint('(' + role + ')', DIM)}")
+        roll(f"  {len(users) + 1}. {t('user_new')}")
         # Leaving the program lives here rather than in the main menu, so
         # signing out and shutting down are two decisions rather than one.
-        print(f"  {len(users) + 2}. {t('exit_program')}")
+        roll(f"  {len(users) + 2}. {t('exit_program')}")
 
-        print()
-        raw = input(t("ask_who", count=len(users) + 2))
+        say()
+        raw = ask(t("ask_who", count=len(users) + 2))
         if raw in cancels():
             return None
         choice = whole_number(raw)
@@ -1556,14 +1559,14 @@ def sign_in_as(app, user_id):
     forgot = t("forgot_password")
     for remaining in (2, 1, 0):
         if remaining == 2:
-            print()
-        typed = getpass.getpass(t("ask_password_or_forgot", name=user.name, forgot=forgot))
+            say()
+        typed = secret(t("ask_password_or_forgot", name=user.name, forgot=forgot))
         if typed == forgot:
             return reset_own_password(app, user)
         if app.sign_in(typed, user_id=user_id):
             from .auth import SESSION_HOURS
 
-            print(paint(t("login_ok", hours=SESSION_HOURS), BOLD, GREEN))
+            say(paint(t("login_ok", hours=SESSION_HOURS), BOLD, GREEN))
             return True
         if remaining:
             print(paint(t("login_failed", count=remaining), RED))
@@ -1576,16 +1579,16 @@ def reset_own_password(app, user):
     from .auth import RESET_ATTEMPTS, RESET_MINUTES, ResetOutcome
     from .passwords import CODE_ALPHABET, CODE_LENGTH
 
-    print(paint(f"\n{t('reset_intro')}", BOLD))
-    print(paint(t("reset_note"), DIM))
+    say(paint(f"\n{t('reset_intro')}", BOLD))
+    say(paint(t("reset_note"), DIM))
     _code, path = app.begin_reset(user.id)
-    print(paint(t("reset_written", path=path), BOLD, CYAN))
-    print(paint(t("reset_expires", minutes=RESET_MINUTES, attempts=RESET_ATTEMPTS), DIM))
+    say(paint(t("reset_written", path=path), BOLD, CYAN))
+    say(paint(t("reset_expires", minutes=RESET_MINUTES, attempts=RESET_ATTEMPTS), DIM))
 
     while True:
         typed = prompt_code(t("ask_reset_code"), CODE_LENGTH, allowed=CODE_ALPHABET)
         if typed is None:
-            print(t("cancelled"))
+            say(t("cancelled"))
             return False
         outcome, left = app.check_reset_code(user.id, typed)
         if outcome == ResetOutcome.OK:
@@ -1605,7 +1608,7 @@ def reset_own_password(app, user):
     if password is None:
         return False
     app.finish_reset(user.id, password, path)
-    print(paint(t("reset_done", name=user.name), BOLD))
+    say(paint(t("reset_done", name=user.name), BOLD))
     return app.sign_in(password, user_id=user.id)
 
 
@@ -1648,9 +1651,9 @@ def prompt_new_password(label="ask_password_new", can_remove=False):
     from .passwords import MIN_LENGTH, password_problems
 
     while True:
-        first = getpass.getpass(t(label))
+        first = secret(t(label))
         if first in cancels():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return None
         if can_remove and first == "":
             return ""
@@ -1659,7 +1662,7 @@ def prompt_new_password(label="ask_password_new", can_remove=False):
             rules = ", ".join(t(key, count=MIN_LENGTH) for key in problems)
             print(paint(t("password_rules", rules=rules), RED))
             continue
-        again = getpass.getpass(t("ask_password_again"))
+        again = secret(t("ask_password_again"))
         if again != first:
             print(paint(t("password_mismatch"), RED))
             continue
@@ -1672,9 +1675,9 @@ def sign_in(app):
 
     user = app.current_user()
     for remaining in (2, 1, 0):
-        password = getpass.getpass(t("ask_login_password", name=user.name))
+        password = secret(t("ask_login_password", name=user.name))
         if app.sign_in(password):
-            print(paint(t("login_ok", hours=SESSION_HOURS), BOLD, GREEN))
+            say(paint(t("login_ok", hours=SESSION_HOURS), BOLD, GREEN))
             return True
         if remaining:
             print(paint(t("login_failed", count=remaining), RED))
@@ -1686,9 +1689,9 @@ def change_own_password(app):
     user = app.current_user()
     current = ""
     if user.has_password:
-        current = getpass.getpass(t("ask_password_current"))
+        current = secret(t("ask_password_current"))
         if current in cancels():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return
     new_password = prompt_new_password()
     if new_password is None:
@@ -1696,7 +1699,7 @@ def change_own_password(app):
     if not app.change_password(current, new_password):
         print(paint(t("password_wrong_current"), RED))
         return
-    print(paint(t("password_changed"), BOLD))
+    say(paint(t("password_changed"), BOLD))
 
 
 def reset_password(app):
@@ -1707,16 +1710,16 @@ def reset_password(app):
     if user is None:
         return
 
-    print(paint(f"\n{t('reset_intro')}", BOLD))
-    print(paint(t("reset_note"), DIM))
+    say(paint(f"\n{t('reset_intro')}", BOLD))
+    say(paint(t("reset_note"), DIM))
     code, path = app.begin_reset(user.id)
-    print(paint(t("reset_written", path=path), BOLD, CYAN))
-    print(paint(t("reset_expires", minutes=RESET_MINUTES, attempts=RESET_ATTEMPTS), DIM))
+    say(paint(t("reset_written", path=path), BOLD, CYAN))
+    say(paint(t("reset_expires", minutes=RESET_MINUTES, attempts=RESET_ATTEMPTS), DIM))
 
     while True:
         typed = prompt_code(t("ask_reset_code"), CODE_LENGTH, allowed=CODE_ALPHABET)
         if typed is None or typed in cancels():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return
         outcome, left = app.check_reset_code(user.id, typed)
         if outcome == ResetOutcome.OK:
@@ -1736,7 +1739,7 @@ def reset_password(app):
     if new_password is None:
         return
     app.finish_reset(user.id, new_password, path)
-    print(paint(t("reset_done", name=user.name), BOLD))
+    say(paint(t("reset_done", name=user.name), BOLD))
 
 
 def show_users(app):
@@ -1755,22 +1758,22 @@ def show_users(app):
     w_pass = max(len(t("field_password")), len(t("user_has_password")))
     total = 4 + w_name + 2 + w_role + 2 + w_pass + 4
 
-    print(paint(f"\n{t('users_title')}", BOLD, CYAN))
-    print("-" * total)
-    print(
+    roll(paint(f"\n{t('users_title')}", BOLD, CYAN))
+    roll("-" * total)
+    roll(
         paint(
             f"{'#':<4}{t('field_name'):<{w_name}}  {t('field_role'):<{w_role}}  "
             f"{t('field_password'):<{w_pass}}",
             BOLD,
         )
     )
-    print("-" * total)
+    roll("-" * total)
     for index, user in enumerate(users, start=1):
         marker = " *" if user.id == current else ""
         has = t("user_has_password") if user.has_password else t("user_no_password")
         role = t("role_admin") if user.is_admin else t("role_user")
-        print(f"{index:<4}{user.name:<{w_name}}  {role:<{w_role}}  {has:<{w_pass}}{marker}")
-    print("-" * total)
+        roll(f"{index:<4}{user.name:<{w_name}}  {role:<{w_role}}  {has:<{w_pass}}{marker}")
+    roll("-" * total)
 
 
 def add_user(app):
@@ -1781,7 +1784,7 @@ def add_user(app):
         print(paint(t("user_exists"), RED))
         return
     app.add_user(name)
-    print(paint(t("user_added", name=name), BOLD))
+    say(paint(t("user_added", name=name), BOLD))
 
 
 def pick_user(app):
@@ -1803,7 +1806,7 @@ def rename_user(app):
         print(paint(t("user_exists"), RED))
         return
     app.rename_user(user.id, name)
-    print(paint(t("user_renamed", name=name), BOLD))
+    say(paint(t("user_renamed", name=name), BOLD))
 
 
 def set_user_password(app):
@@ -1821,13 +1824,13 @@ def set_user_password(app):
         return
     app.set_password(user.id, password or None)
     key = "user_password_set" if password else "user_password_cleared"
-    print(paint(t(key, name=user.name), BOLD))
+    say(paint(t(key, name=user.name), BOLD))
 
 
 def delete_user(app):
     users = app.users()
     if len(users) < 2:
-        print(paint(t("user_delete_last"), YELLOW))
+        say(paint(t("user_delete_last"), YELLOW))
         return
     user = pick_user(app)
     if user is None:
@@ -1836,12 +1839,12 @@ def delete_user(app):
         print(paint(t("user_delete_current"), RED))
         return
 
-    answer = input(t("user_confirm_delete", name=user.name)).strip()
+    answer = ask(t("user_confirm_delete", name=user.name)).strip()
     if answer not in affirmatives():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
     app.delete_user(user.id)
-    print(paint(t("user_deleted", name=user.name), YELLOW))
+    say(paint(t("user_deleted", name=user.name), YELLOW))
 
 
 def sign_out_and_exit(app):
@@ -1852,17 +1855,17 @@ def sign_out_and_exit(app):
     looking at what they had just signed out of.
     """
     if not app.current_user().has_password:
-        print(paint(t("no_session"), YELLOW))
+        say(paint(t("no_session"), YELLOW))
         return False
 
-    print()
-    answer = input(t("sign_out_confirm")).strip()
+    say()
+    answer = ask(t("sign_out_confirm")).strip()
     if answer not in affirmatives():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return False
 
     app.sign_out()
-    print(paint(t("logged_out"), BOLD))
+    say(paint(t("logged_out"), BOLD))
     return True
 
 
@@ -1876,7 +1879,27 @@ def change_role(app):
         return
     app.set_admin(user.id, not user.is_admin)
     role = t("role_user") if user.is_admin else t("role_admin")
-    print(paint(t("role_changed", name=user.name, role=role), BOLD))
+    say(paint(t("role_changed", name=user.name, role=role), BOLD))
+
+
+def users_menu_label(app, key):
+    """A users menu entry, the typing effect's saying whether it is on now."""
+    if key == "user_menu_typing":
+        state = t("typing_on") if app.typing_effect() else t("typing_off")
+        return t(key, state=state)
+    return t(key)
+
+
+def toggle_typing_effect(app):
+    """Switch the typing effect on or off - for the signed-in person only.
+
+    Remembered for next time. Each person decides for themselves: one who
+    finds it slow switches it off without taking it from anyone else.
+    """
+    on = not app.typing_effect()
+    app.set_typing_effect(on)
+    typewriter.prefer(on)
+    say(paint(t("typing_turned_on" if on else "typing_turned_off"), BOLD))
 
 
 def users_menu(app):
@@ -1887,10 +1910,11 @@ def users_menu(app):
     """
     while True:
         admin = app.is_admin
-        print(paint(f"\n{t('menu_users')}:", BOLD, CYAN))
+        say(paint(f"\n{t('menu_users')}:", BOLD, CYAN))
         entries = [
             ("user_menu_view", show_users),
             ("user_menu_change_password", change_own_password),
+            ("user_menu_typing", toggle_typing_effect),
         ]
         if admin:
             entries += [
@@ -1902,11 +1926,11 @@ def users_menu(app):
                 ("user_menu_delete", delete_user),
             ]
         for index, (key, _) in enumerate(entries, start=1):
-            print(f"{index}. {t(key)}")
+            roll(f"{index}. {users_menu_label(app, key)}")
         back = len(entries) + 1
-        print(f"{back}. {t('back')}")
+        roll(f"{back}. {t('back')}")
         if not admin:
-            print(paint(t("admin_only_note"), DIM))
+            say(paint(t("admin_only_note"), DIM))
 
         choice = prompt_menu_choice(1, back)
         if choice == str(back):
@@ -1927,7 +1951,7 @@ def show_rules(app):
     """Every rule, most specific first."""
     rules = app.category_rules()
     if not rules:
-        print(paint(f"\n{t('no_rules')}", YELLOW))
+        roll(paint(f"\n{t('no_rules')}", YELLOW))
         return
 
     patterns = [r.pattern for r in rules]
@@ -1936,26 +1960,26 @@ def show_rules(app):
     w_target = max([len(t("field_category"))] + [len(v) for v in targets])
     total = 4 + w_pattern + 4 + w_target
 
-    print(paint(f"\n{t('rules_title')}", BOLD, CYAN))
-    print("-" * total)
-    print(
+    roll(paint(f"\n{t('rules_title')}", BOLD, CYAN))
+    roll("-" * total)
+    roll(
         paint(
             f"{'#':<4}{t('field_rule_pattern'):<{w_pattern}}    {t('field_category'):<{w_target}}",
             BOLD,
         )
     )
-    print("-" * total)
+    roll("-" * total)
     for index in range(1, len(rules) + 1):
-        print(f"{index:<4}{patterns[index - 1]:<{w_pattern}} -> {targets[index - 1]}")
-    print("-" * total)
+        roll(f"{index:<4}{patterns[index - 1]:<{w_pattern}} -> {targets[index - 1]}")
+    roll("-" * total)
 
 
 def add_rule(app):
     """Create a rule, saying first how much of the existing data it touches."""
-    print(paint(f"\n{t('rule_menu_add')}", BOLD, CYAN))
-    pattern = input(t("ask_rule_pattern"))
+    say(paint(f"\n{t('rule_menu_add')}", BOLD, CYAN))
+    pattern = ask(t("ask_rule_pattern"))
     if not pattern or pattern in cancels():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
     pattern = pattern.strip()
     if not pattern:
@@ -1969,9 +1993,9 @@ def add_rule(app):
     # something to learn beforehand.
     count = app.count_matching(pattern)
     if count:
-        print(paint(t("rule_would_match", count=count), DIM))
+        say(paint(t("rule_would_match", count=count), DIM))
     else:
-        print(paint(t("rule_matches_nothing"), YELLOW))
+        say(paint(t("rule_matches_nothing"), YELLOW))
 
     answers = run_stages(
         [
@@ -1981,17 +2005,17 @@ def add_rule(app):
         ]
     )
     if answers is None:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
     kind, category, subcategory = answers["kind"], answers["category"], answers["subcategory"]
 
-    answer = input(t("rule_confirm")).strip()
+    answer = ask(t("rule_confirm")).strip()
     if answer not in affirmatives():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
 
     app.add_category_rule(pattern, category, kind, subcategory)
-    print(paint(t("rule_added", pattern=pattern, category=category), BOLD))
+    say(paint(t("rule_added", pattern=pattern, category=category), BOLD))
 
 
 def delete_rule(app):
@@ -2003,16 +2027,16 @@ def delete_rule(app):
     if index is None:
         return
     removed = app.delete_category_rule(rules[index].id)
-    print(paint(t("rule_deleted", pattern=removed.pattern), YELLOW))
+    say(paint(t("rule_deleted", pattern=removed.pattern), YELLOW))
 
 
 def rules_menu(app):
     while True:
-        print(paint(f"\n{t('menu_rules')}:", BOLD, CYAN))
-        print(f"1. {t('rule_menu_view')}")
-        print(f"2. {t('rule_menu_add')}")
-        print(f"3. {t('rule_menu_delete')}")
-        print(f"4. {t('back')}")
+        say(paint(f"\n{t('menu_rules')}:", BOLD, CYAN))
+        roll(f"1. {t('rule_menu_view')}")
+        roll(f"2. {t('rule_menu_add')}")
+        roll(f"3. {t('rule_menu_delete')}")
+        roll(f"4. {t('back')}")
 
         choice = prompt_menu_choice(1, 4)
         if choice == "1":
@@ -2041,10 +2065,10 @@ CATEGORY_PREFIXES = ("k ", "c ")
 
 def ask_import_columns(header, mapping):
     """Ask which column holds anything that was not recognised."""
-    print(paint(f"\n{t('import_columns_found', columns=', '.join(sorted(mapping)))}", DIM))
-    print()
+    say(paint(f"\n{t('import_columns_found', columns=', '.join(sorted(mapping)))}", DIM))
+    say()
     for index, name in enumerate(header, start=1):
-        print(f"  {index}. {name}")
+        roll(f"  {index}. {name}")
 
     for role in ("date", "amount", "description"):
         if role in mapping:
@@ -2052,7 +2076,7 @@ def ask_import_columns(header, mapping):
         if role == "amount" and ("debit" in mapping or "credit" in mapping):
             continue
         while True:
-            raw = input(t("import_which_column", role=role)).strip()
+            raw = ask(t("import_which_column", role=role)).strip()
             if raw == "0":
                 break
             number = whole_number(raw)
@@ -2071,10 +2095,10 @@ def preview_loop(app, candidates, separator, date_label):
     """
     while True:
         print_candidates(candidates, separator, date_label)
-        print()
-        print(paint(t("import_commands"), DIM))
+        say()
+        roll(paint(t("import_commands"), DIM))
         print_rows_guide(indent="  ")
-        print(paint(t("import_cmd_rest"), DIM))
+        roll(paint(t("import_cmd_rest"), DIM))
         for key in (
             "import_cmd_all",
             "import_cmd_none",
@@ -2082,16 +2106,16 @@ def preview_loop(app, candidates, separator, date_label):
             "import_cmd_import",
             "import_cmd_cancel",
         ):
-            print(paint(t(key), DIM))
+            roll(paint(t(key), DIM))
 
-        print()
-        choice = input(t("import_choose")).strip()
+        say()
+        choice = ask(t("import_choose")).strip()
 
         if choice in cancels():
             return False
         if choice in CONFIRM_WORDS:
             if not any(c.will_import for c in candidates):
-                print(paint(t("import_none_selected"), YELLOW))
+                say(paint(t("import_none_selected"), YELLOW))
                 continue
             return True
         if choice.casefold() in SELECT_ALL_WORDS:
@@ -2149,11 +2173,11 @@ def set_candidate_category(app, candidates, raw):
 
     candidate = candidates[index - 1]
     if candidate.kind == TRANSFER:
-        print(paint(t("import_row_unusable"), YELLOW))
+        say(paint(t("import_row_unusable"), YELLOW))
         return
     category = prompt_category(app, candidate.kind, current=candidate.category)
     if category is BACK:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
     candidate.category = category
 
@@ -2161,7 +2185,7 @@ def set_candidate_category(app, candidates, raw):
 def report_reconciliation(result):
     """Print whether the parse agreed with the bank's own totals."""
     if result.ok:
-        print(paint(t("import_reconciled", count=result.checked), BOLD, GREEN))
+        say(paint(t("import_reconciled", count=result.checked), BOLD, GREEN))
         return True
 
     print(paint(t("import_reconcile_failed"), RED))
@@ -2191,32 +2215,32 @@ def import_statement(app, raw, path):
     """
     from .statements import parse_statement, reconcile, to_candidates
 
-    print(paint(t("import_statement_found"), BOLD, CYAN))
+    say(paint(t("import_statement_found"), BOLD, CYAN))
     statement = parse_statement(raw)
     if statement.opening is not None:
-        print(paint(t("import_opening", amount=money(statement.opening)), DIM))
+        say(paint(t("import_opening", amount=money(statement.opening)), DIM))
 
     if not report_reconciliation(reconcile(statement)):
-        print(paint(t("import_refused"), YELLOW))
+        say(paint(t("import_refused"), YELLOW))
         return
 
     account_id = None
     if app.has_accounts():
-        print(paint(f"\n{t('import_ask_account')}", BOLD))
+        say(paint(f"\n{t('import_ask_account')}", BOLD))
         account_id = prompt_account(app)
         if account_id is BACK:
-            print(paint(t("import_cancelled"), YELLOW))
+            say(paint(t("import_cancelled"), YELLOW))
             return
 
     candidates = to_candidates(statement, account_id=account_id)
-    print(paint(t("import_deposits_note"), DIM))
+    say(paint(t("import_deposits_note"), DIM))
     filled = app.apply_rules(candidates)
     if filled:
-        print(paint(t("rules_applied", count=filled), DIM))
+        say(paint(t("rules_applied", count=filled), DIM))
     mark_duplicates_for(app, candidates)
 
     if not preview_loop(app, candidates, ".", "dd/mm/yyyy"):
-        print(paint(t("import_cancelled"), YELLOW))
+        say(paint(t("import_cancelled"), YELLOW))
         return
 
     finish_import(app, candidates)
@@ -2236,7 +2260,7 @@ def finish_import(app, candidates):
     except Exception as error:
         print(paint(t("import_failed", error=error), RED))
         return
-    print(paint(t("import_done", count=count), BOLD))
+    say(paint(t("import_done", count=count), BOLD))
 
 
 def choose_import_file(typed):
@@ -2256,17 +2280,17 @@ def choose_import_file(typed):
 
     if len(matches) == 1:
         found, where = matches[0]
-        print(paint(t("import_found", name=os.path.basename(found), folder=where), DIM))
+        say(paint(t("import_found", name=os.path.basename(found), folder=where), DIM))
         return found
 
-    print(paint(f"\n{t('import_which_file')}", BOLD))
+    say(paint(f"\n{t('import_which_file')}", BOLD))
     for index, (found, where) in enumerate(matches, start=1):
-        print(t("import_file_option", number=index, name=os.path.basename(found), folder=where))
+        roll(t("import_file_option", number=index, name=os.path.basename(found), folder=where))
 
     while True:
-        raw = input(t("ask_which_file")).strip()
+        raw = ask(t("ask_which_file")).strip()
         if raw in cancels():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return None
         number = whole_number(raw)
         if number is not None and 1 <= number <= len(matches):
@@ -2315,7 +2339,7 @@ def import_from_file(app, path=None):
         read_rows,
     )
 
-    print(paint(f"\n{t('import_title')}", BOLD, CYAN))
+    say(paint(f"\n{t('import_title')}", BOLD, CYAN))
     if path is None:
         from .locations import folder_label, search_folders
 
@@ -2324,10 +2348,10 @@ def import_from_file(app, path=None):
         # calls it "Documents" sends them looking for one that is not there.
         where = ", ".join(folder_label(f) for f in search_folders()[1:])
         hint("hint_cancel_task")
-        print(paint(f"  {t('import_where', folders=where)}", DIM))
-        typed = input(t("ask_import_path")).strip()
+        roll(paint(f"  {t('import_where', folders=where)}", DIM))
+        typed = ask(t("ask_import_path")).strip()
         if not typed or typed in cancels():
-            print(t("cancelled"))
+            say(t("cancelled"))
             return
         path = choose_import_file(typed)
         if path is None:
@@ -2354,7 +2378,7 @@ def import_from_file(app, path=None):
         print(paint(t("import_failed", error=error), RED))
         return
 
-    print(paint(t("import_read", count=len(rows), path=path), BOLD))
+    say(paint(t("import_read", count=len(rows), path=path), BOLD))
 
     mapping = guess_columns(header)
     if "date" not in mapping or not has_usable_amount(mapping):
@@ -2367,10 +2391,10 @@ def import_from_file(app, path=None):
     # would be seventeen answers to the same question.
     account_id = None
     if app.has_accounts():
-        print(paint(f"\n{t('import_ask_account')}", BOLD))
+        say(paint(f"\n{t('import_ask_account')}", BOLD))
         account_id = prompt_account(app)
         if account_id is BACK:
-            print(paint(t("import_cancelled"), YELLOW))
+            say(paint(t("import_cancelled"), YELLOW))
             return
 
     candidates, separator, detected = build_candidates(header, rows, mapping, account_id=account_id)
@@ -2378,11 +2402,11 @@ def import_from_file(app, path=None):
     # already filled in and can still be changed like any other.
     filled = app.apply_rules(candidates)
     if filled:
-        print(paint(t("rules_applied", count=filled), DIM))
+        say(paint(t("rules_applied", count=filled), DIM))
     mark_duplicates(candidates, app.transactions())
 
     if not preview_loop(app, candidates, separator, detected[1] if detected else None):
-        print(paint(t("import_cancelled"), YELLOW))
+        say(paint(t("import_cancelled"), YELLOW))
         return
 
     finish_import(app, candidates)
@@ -2412,10 +2436,10 @@ def show_transaction_history(app):
 
 
 def history_menu(app):
-    print(paint(f"\n{t('menu_history')}:", BOLD, CYAN))
-    print(f"1. {t('history_menu_recent')}")
-    print(f"2. {t('history_menu_one')}")
-    print(f"3. {t('back')}")
+    say(paint(f"\n{t('menu_history')}:", BOLD, CYAN))
+    roll(f"1. {t('history_menu_recent')}")
+    roll(f"2. {t('history_menu_one')}")
+    roll(f"3. {t('back')}")
 
     choice = prompt_menu_choice(1, 3)
     if choice == "1":
@@ -2442,11 +2466,11 @@ def prompt_name(message_key, can_go_back=False, **kwargs):
     one question at a time.
     """
     while True:
-        typed = input(t(message_key, **kwargs))
+        typed = ask(t(message_key, **kwargs))
         if typed in cancels():
             if can_go_back:
                 return BACK
-            print(t("cancelled"))
+            say(t("cancelled"))
             return None
         if not valid_name(typed):
             print(paint(t("invalid_name"), RED))
@@ -2456,7 +2480,7 @@ def prompt_name(message_key, can_go_back=False, **kwargs):
 
 def prompt_category_kind(can_go_back=False):
     """Ask whether a category belongs to income or expenses."""
-    print(f"\n{t('pick_category_kind')}")
+    say(f"\n{t('pick_category_kind')}")
     return prompt_kind(can_go_back=can_go_back)
 
 
@@ -2468,13 +2492,13 @@ def show_categories(app):
         if not categories:
             continue
         printed = True
-        print(paint(f"\n{type_label(kind)}", BOLD, type_color(kind)))
+        say(paint(f"\n{type_label(kind)}", BOLD, type_color(kind)))
         for index, category in enumerate(categories, start=1):
-            print(f"  {index}. {category.name}")
+            roll(f"  {index}. {category.name}")
             for subcategory in app.subcategories(category.id):
-                print(paint(f"       {subcategory.name}", DIM))
+                roll(paint(f"       {subcategory.name}", DIM))
     if not printed:
-        print(paint(f"\n{t('no_categories')}", YELLOW))
+        say(paint(f"\n{t('no_categories')}", YELLOW))
 
 
 def pick_category(app, kind=None):
@@ -2482,15 +2506,15 @@ def pick_category(app, kind=None):
     if kind is None:
         kind = prompt_category_kind(can_go_back=True)
         if kind is BACK:
-            print(t("cancelled"))
+            say(t("cancelled"))
             return None
     categories = app.categories(kind)
     if not categories:
-        print(paint(t("no_categories"), YELLOW))
+        say(paint(t("no_categories"), YELLOW))
         return None
-    print(paint(f"\n{type_label(kind)}", BOLD, type_color(kind)))
+    say(paint(f"\n{type_label(kind)}", BOLD, type_color(kind)))
     for index, category in enumerate(categories, start=1):
-        print(f"  {index}. {category.name}")
+        roll(f"  {index}. {category.name}")
     index = prompt_index(len(categories), t("ask_number_category"))
     return categories[index] if index is not None else None
 
@@ -2499,11 +2523,11 @@ def pick_subcategory(app, category):
     """List a category's subcategories and return the chosen one, or None."""
     subcategories = app.subcategories(category.id)
     if not subcategories:
-        print(paint(t("no_subcategories"), YELLOW))
+        say(paint(t("no_subcategories"), YELLOW))
         return None
-    print(paint(f"\n{category.name}", BOLD))
+    say(paint(f"\n{category.name}", BOLD))
     for index, subcategory in enumerate(subcategories, start=1):
-        print(f"  {index}. {subcategory.name}")
+        roll(f"  {index}. {subcategory.name}")
     index = prompt_index(len(subcategories), t("ask_number_subcategory"))
     return subcategories[index] if index is not None else None
 
@@ -2516,14 +2540,14 @@ def add_category(app):
         ]
     )
     if answers is None:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
     kind, name = answers["kind"], answers["name"]
     if app.category_exists(name, kind):
         print(paint(t("category_exists"), RED))
         return
     app.add_category(name, kind)
-    print(paint(t("category_added", name=name), BOLD))
+    say(paint(t("category_added", name=name), BOLD))
 
 
 def rename_category(app):
@@ -2538,7 +2562,7 @@ def rename_category(app):
         print(paint(t("category_exists"), RED))
         return
     app.rename_category(category.id, name)
-    print(paint(t("category_renamed", name=name), BOLD))
+    say(paint(t("category_renamed", name=name), BOLD))
 
 
 def delete_category(app):
@@ -2548,15 +2572,15 @@ def delete_category(app):
 
     subs = len(app.subcategories(category.id))
     affected = len(app.transactions(category_id=category.id))
-    answer = input(
+    answer = ask(
         t("confirm_delete_category", name=category.name, subs=subs, count=affected)
     ).strip()
     if answer not in affirmatives():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
 
     removed, count = app.delete_category(category.id)
-    print(paint(t("category_deleted", name=removed.name, count=count), YELLOW))
+    say(paint(t("category_deleted", name=removed.name, count=count), YELLOW))
 
 
 def add_subcategory(app):
@@ -2570,7 +2594,7 @@ def add_subcategory(app):
         print(paint(t("subcategory_exists"), RED))
         return
     app.add_subcategory(name, category.id)
-    print(paint(t("subcategory_added", name=name, parent=category.name), BOLD))
+    say(paint(t("subcategory_added", name=name, parent=category.name), BOLD))
 
 
 def rename_subcategory(app):
@@ -2588,7 +2612,7 @@ def rename_subcategory(app):
         print(paint(t("subcategory_exists"), RED))
         return
     app.rename_subcategory(subcategory.id, name)
-    print(paint(t("subcategory_renamed", name=name), BOLD))
+    say(paint(t("subcategory_renamed", name=name), BOLD))
 
 
 def delete_subcategory(app):
@@ -2600,26 +2624,26 @@ def delete_subcategory(app):
         return
 
     affected = len(app.transactions(subcategory_id=subcategory.id))
-    answer = input(t("confirm_delete_subcategory", name=subcategory.name, count=affected)).strip()
+    answer = ask(t("confirm_delete_subcategory", name=subcategory.name, count=affected)).strip()
     if answer not in affirmatives():
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
 
     removed, count = app.delete_subcategory(subcategory.id)
-    print(paint(t("subcategory_deleted", name=removed.name, count=count), YELLOW))
+    say(paint(t("subcategory_deleted", name=removed.name, count=count), YELLOW))
 
 
 def category_menu(app):
     while True:
-        print(paint(f"\n{t('menu_categories')}:", BOLD, CYAN))
-        print(f"1. {t('category_menu_view')}")
-        print(f"2. {t('category_menu_add')}")
-        print(f"3. {t('category_menu_rename')}")
-        print(f"4. {t('category_menu_delete')}")
-        print(f"5. {t('category_menu_add_sub')}")
-        print(f"6. {t('category_menu_rename_sub')}")
-        print(f"7. {t('category_menu_delete_sub')}")
-        print(f"8. {t('back')}")
+        say(paint(f"\n{t('menu_categories')}:", BOLD, CYAN))
+        roll(f"1. {t('category_menu_view')}")
+        roll(f"2. {t('category_menu_add')}")
+        roll(f"3. {t('category_menu_rename')}")
+        roll(f"4. {t('category_menu_delete')}")
+        roll(f"5. {t('category_menu_add_sub')}")
+        roll(f"6. {t('category_menu_rename_sub')}")
+        roll(f"7. {t('category_menu_delete_sub')}")
+        roll(f"8. {t('back')}")
 
         choice = prompt_menu_choice(1, 8)
         if choice == "1":
@@ -2665,11 +2689,11 @@ def set_budget(app):
         ]
     )
     if answers is None:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
     category = answers["category"]
     app.set_budget(category, answers["amount"])
-    print(paint(t("budget_saved", category=category), BOLD))
+    say(paint(t("budget_saved", category=category), BOLD))
 
 
 def delete_budget(app):
@@ -2684,16 +2708,16 @@ def delete_budget(app):
         return
     chosen = statuses[index]
     app.delete_budget(chosen.category_id)
-    print(paint(t("budget_deleted", category=chosen.category), BOLD))
+    say(paint(t("budget_deleted", category=chosen.category), BOLD))
 
 
 def budget_menu(app):
     while True:
-        print(paint(f"\n{t('menu_budgets')}:", BOLD, CYAN))
-        print(f"1. {t('budget_menu_view')}")
-        print(f"2. {t('budget_menu_set')}")
-        print(f"3. {t('budget_menu_delete')}")
-        print(f"4. {t('back')}")
+        say(paint(f"\n{t('menu_budgets')}:", BOLD, CYAN))
+        roll(f"1. {t('budget_menu_view')}")
+        roll(f"2. {t('budget_menu_set')}")
+        roll(f"3. {t('budget_menu_delete')}")
+        roll(f"4. {t('back')}")
 
         choice = prompt_menu_choice(1, 4)
         if choice == "1":
@@ -2725,11 +2749,11 @@ def show_recurring(app):
 def prompt_frequency():
     """How often a recurring transaction repeats. A frequency name, or BACK."""
     names = list(FREQUENCIES.keys())
-    print(f"\n{t('field_frequency')}:")
+    say(f"\n{t('field_frequency')}:")
     for index, name in enumerate(names, start=1):
-        print(f"  {index}. {frequency_label(name)}")
+        roll(f"  {index}. {frequency_label(name)}")
     while True:
-        typed = input(t("choose_frequency", count=len(names)))
+        typed = ask(t("choose_frequency", count=len(names)))
         if typed in cancels():
             return BACK
         number = whole_number(typed.strip())
@@ -2739,12 +2763,12 @@ def prompt_frequency():
 
 
 def prompt_first_date():
-    print(paint(f"\n{t('first_date')}", DIM))
+    say(paint(f"\n{t('first_date')}", DIM))
     return prompt_date()
 
 
 def add_recurring(app):
-    print(paint(f"\n{t('adding_recurring')}", BOLD))
+    say(paint(f"\n{t('adding_recurring')}", BOLD))
     stages = [
         ("kind", lambda _v: prompt_kind(can_go_back=True)),
         ("description", lambda _v: prompt_description()),
@@ -2761,7 +2785,7 @@ def add_recurring(app):
     ]
     answers = run_stages(stages)
     if answers is None:
-        print(t("cancelled"))
+        say(t("cancelled"))
         return
 
     app.add_recurring_rule(
@@ -2774,10 +2798,10 @@ def add_recurring(app):
         subcategory=answers["subcategory"],
         account_id=answers.get("account_id"),
     )
-    print(paint(t("recurring_added"), BOLD))
+    say(paint(t("recurring_added"), BOLD))
     generated = app.process_recurring()
     if generated:
-        print(paint(t("generated", count=len(generated)), BOLD))
+        say(paint(t("generated", count=len(generated)), BOLD))
 
 
 def delete_recurring(app):
@@ -2789,25 +2813,25 @@ def delete_recurring(app):
     if index is None:
         return
     removed = app.delete_recurring_rule(rules[index].id)
-    print(paint(t("recurring_deleted", description=removed.description), BOLD))
+    say(paint(t("recurring_deleted", description=removed.description), BOLD))
 
 
 def generate_recurring(app):
     generated = app.process_recurring()
     if generated:
-        print(paint(t("generated", count=len(generated)), BOLD))
+        say(paint(t("generated", count=len(generated)), BOLD))
     else:
-        print(t("nothing_due"))
+        say(t("nothing_due"))
 
 
 def recurring_menu(app):
     while True:
-        print(paint(f"\n{t('recurring_title')}", BOLD, CYAN))
-        print(f"1. {t('recurring_menu_view')}")
-        print(f"2. {t('recurring_menu_add')}")
-        print(f"3. {t('recurring_menu_delete')}")
-        print(f"4. {t('recurring_menu_generate')}")
-        print(f"5. {t('back')}")
+        say(paint(f"\n{t('recurring_title')}", BOLD, CYAN))
+        roll(f"1. {t('recurring_menu_view')}")
+        roll(f"2. {t('recurring_menu_add')}")
+        roll(f"3. {t('recurring_menu_delete')}")
+        roll(f"4. {t('recurring_menu_generate')}")
+        roll(f"5. {t('back')}")
 
         choice = prompt_menu_choice(1, 5)
         if choice == "1":
@@ -2860,31 +2884,33 @@ def run_menu(app):
     screen. Leaving the program is offered there rather than here, so signing
     out and shutting down are two decisions rather than one.
     """
-    print()
-    print(paint(t("welcome"), BOLD, CYAN))
+    # Whoever is signed in now decides whether text is typed out for them.
+    typewriter.prefer(app.typing_effect())
+    say()
+    say(paint(t("welcome"), BOLD, CYAN))
     # Named only when there is more than one, so a single-person installation
     # never sees a concept it does not use.
     if len(app.users()) > 1:
-        print(paint(t("user_current", name=app.current_user().name), DIM))
+        say(paint(t("user_current", name=app.current_user().name), DIM))
     count = len(MENU_ITEMS)
 
     while True:
-        print(paint(f"\n{t('menu')}", BOLD))
+        say(paint(f"\n{t('menu')}", BOLD))
         for index, (key, _) in enumerate(MENU_ITEMS, start=1):
             # The last entry signs out where there is a sign-in screen to
             # return to, and simply leaves where there is not. It says which.
             if key == "menu_logout" and not app.sign_in_applies():
-                print(f"{index}. {t('exit_program')}")
+                roll(f"{index}. {t('exit_program')}")
             else:
-                print(f"{index}. {t(key)}")
+                roll(f"{index}. {t(key)}")
 
         choice = prompt_menu_choice(1, count)
         if choice == str(count):
             # With one user and no password there is no sign-in screen to
             # return to, so the same entry simply leaves.
             if not app.sign_in_applies():
-                print()
-                print(paint(t("goodbye"), CYAN))
+                say()
+                say(paint(t("goodbye"), CYAN))
                 return True
             if sign_out_and_exit(app):
                 return False

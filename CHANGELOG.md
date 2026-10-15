@@ -5,10 +5,72 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Twenty-five versions are recorded below. Twenty-four of them were released;
+Twenty-six versions are recorded below. Twenty-five of them were released;
 2.0.0 was a development phase whose work shipped as part of 2.1.0, and it is
 documented here because it is a distinct stage in the project's history. Commit
 hashes are given so each entry can be traced back to the code.
+
+## [3.12.0] — 2026-10-15
+
+The program now says things as if it were typing them - quickly, and never in
+anyone's way. And from this version on, every release comes with a Windows
+`.exe`.
+
+### Added
+
+- Text appears as if typed. Headings and messages come at about 40 letters a
+  second and questions at twice that; menus, lists, tables, reports and the
+  hints above a question roll in a line at a time - a whole menu in under half
+  a second. Errors, passwords, the code boxes, crash reports and the
+  first-launch tests still appear at once.
+- Nothing keeps anyone waiting. A long message is typed faster rather than for
+  longer, and everything shown between two questions together takes about a
+  second at most; past that, the rest appears at once. Enter shows the rest
+  straight away, and is used up doing it, so it never answers the question
+  that follows. An answer typed in full while text is still appearing answers
+  the next question - the code boxes included - and the screen it answers
+  appears at once.
+- Each person switches it off or on for themselves: "Efekti i shkrimit" in the
+  users menu, which says whether it is on now and is remembered for next time.
+  It is on until switched off. The sign-in screen belongs to nobody yet, so it
+  is typed for everyone. `FINANCE_TYPING=0` switches it off for everyone.
+- It is only for a person at a terminal. A run with flags, a script, a pipe
+  and the tests get plain output, exactly as before.
+- `financat.exe` on every release page: the program for Windows in one file,
+  with nothing else to install. It checks itself the first time it opens, as a
+  copy of the source does - the tests are packed inside it, with pytest, and
+  since it has no Python beside it to run them with, it starts itself in a
+  test mode that runs them inside. It is not signed, so Windows may warn
+  before opening it the first time.
+
+### Changed
+
+- The users menu has a new entry for everyone, third, so going back is now 4
+  for an ordinary user and 10 for an administrator, rather than 3 and 9.
+
+### Notes
+
+- Watching for Enter while text appears works differently on each system. On
+  Linux and macOS the terminal holds a line until Enter is pressed, so input
+  waiting means Enter was; what is typed meanwhile is hidden, so it cannot
+  break the line being typed. On Windows the console's input is looked at
+  without being taken, and only an Enter is taken - any other key is the start
+  of an answer and is left where it is. If the terminal fails either, the
+  effect switches itself off for the rest of the run and the text appears at
+  once: it never stops the program.
+- Schema version 11. The migration adds one table, for each person's own
+  settings, and changes nothing else. A setting is not data: it is not in the
+  change history, and it is not something that keeps an account.
+- The `.exe` is built by GitHub, on Windows, from the commit a version tag
+  points at: the tests run, the `.exe` is built with PyInstaller, the tests
+  packed inside it run again, and only then is the release published, with
+  that version's entry here as its notes. A tag that is not the program's
+  version stops it before anything is built. Started by hand, the same build
+  publishes nothing and keeps the `.exe` to try first. PyInstaller is needed
+  only for building; the program itself still uses nothing but Python's
+  standard library.
+- 1600 tests, up from 1489. Nine of the new ones need a real terminal of the
+  kind Linux and macOS have, and are skipped on Windows.
 
 ## [3.11.2] — 2026-10-14
 

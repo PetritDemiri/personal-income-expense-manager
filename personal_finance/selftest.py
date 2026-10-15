@@ -6,16 +6,19 @@ in Documents\\Financat\\Testet\\testet.txt. That file is how it knows never to
 do it again. Deleting it brings the tests back on the next launch.
 
 The tests run only where they exist - a copy of the source with pytest
-installed - and only for a person at a terminal. A script, a piped command or
-a flagged run never waits on them. FINANCE_SKIP_TESTS turns them off
-altogether, which is what the test suite itself sets so it can never start
-itself, and what the demo recordings set so they do not film it.
+installed, or the Windows .exe, which has both packed inside it - and only for
+a person at a terminal. A script, a piped command or a flagged run never waits
+on them. FINANCE_SKIP_TESTS turns them off altogether, which is what the test
+suite itself sets so it can never start itself, and what the demo recordings
+set so they do not film it.
 
 They run in a process of their own rather than inside the program. pytest
 takes over the standard streams while it works and, on Windows, does not hand
 the originals back, after which a password typed at the first-run setup was
 shown on screen as it was typed. In a separate process nothing it does can
-reach the program's own input.
+reach the program's own input. A copy of the source starts that process with
+Python. The .exe has no Python to start - it is the only program there is - so
+it starts itself, in its test mode, and runs pytest inside that.
 """
 
 import datetime
@@ -33,6 +36,10 @@ from .locations import TESTS_FOLDER, app_subdirectory
 
 SKIP_ENV = "FINANCE_SKIP_TESTS"
 RECORD_FILE = "testet.txt"
+
+# What the .exe is started with to run the tests packed inside it. Read by the
+# .exe's own starting point before anything else, never by the program.
+TEST_MODE = "--run-bundled-tests"
 
 # How a run ended, as written into the record.
 RAN = "ran"
@@ -109,22 +116,7 @@ def run_suite(tests):
     # machine have no business in a check of this program.
     environment[SKIP_ENV] = "1"
     environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
-    command = [
-        sys.executable,
-        "-m",
-        "pytest",
-        tests,
-        # Settings from the project file are replaced, so what is shown does
-        # not depend on how the project is configured for its developers.
-        "-o",
-        "addopts=",
-        "-q",
-        "-p",
-        "no:cacheprovider",
-        "--rootdir",
-        root,
-        f"--junit-xml={report}",
-    ]
+    command = [*pytest_command(), *pytest_arguments(tests), f"--junit-xml={report}"]
     try:
         subprocess.run(command, cwd=root, env=environment, check=False)
         return read_report(report)
@@ -137,6 +129,48 @@ def run_suite(tests):
             os.remove(report)
         except OSError:
             pass
+
+
+def pytest_command():
+    """How to start pytest in a process of its own."""
+    if getattr(sys, "frozen", False):
+        # The .exe: there is no Python beside it to start, so it starts itself.
+        return [sys.executable, TEST_MODE]
+    return [sys.executable, "-m", "pytest"]
+
+
+def pytest_arguments(tests):
+    """The suite, run the way the first launch runs it."""
+    return [
+        tests,
+        # Settings from the project file are replaced, so what is shown does
+        # not depend on how the project is configured for its developers.
+        "-o",
+        "addopts=",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--rootdir",
+        os.path.dirname(tests),
+    ]
+
+
+def run_inside(arguments):
+    """The .exe's test mode: pytest, run inside this program.
+
+    What the first launch starts, in a process of its own, where there is no
+    Python to start pytest with. Given nothing, it runs the suite packed into
+    the .exe - which is how a release is checked before it is published.
+    """
+    import pytest
+
+    if not arguments:
+        tests = tests_directory()
+        if tests is None:
+            print("There are no tests in this copy of the program.", file=sys.stderr)
+            return int(pytest.ExitCode.USAGE_ERROR)
+        arguments = pytest_arguments(tests)
+    return int(pytest.main(arguments))
 
 
 def read_report(path):

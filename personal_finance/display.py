@@ -19,6 +19,7 @@ from .reports import (
     totals_by_subcategory,
 )
 from .schema import EXPENSE, INCOME, TRANSFER
+from .typewriter import roll
 
 
 def category_display(value):
@@ -73,7 +74,7 @@ def print_transactions(numbered, title=None, show_times=False):
     title = title or t("all_transactions")
 
     if not numbered:
-        print(paint(f"\n{t('no_transactions')}", YELLOW))
+        roll(paint(f"\n{t('no_transactions')}", YELLOW))
         return
 
     labels = {n: type_label(x.kind) for n, x in numbered}
@@ -131,9 +132,9 @@ def print_transactions(numbered, title=None, show_times=False):
     if show_times:
         total += w_created + w_updated + 4
 
-    print(paint(f"\n{title}", BOLD, CYAN))
-    print("-" * total)
-    print(
+    roll(paint(f"\n{title}", BOLD, CYAN))
+    roll("-" * total)
+    roll(
         paint(
             f"{head_num:<{w_num}}{head_date:<{w_date}} {head_type:<{w_type}} "
             f"{head_desc:<{w_desc}} {head_cat:<{w_cat}} "
@@ -141,7 +142,7 @@ def print_transactions(numbered, title=None, show_times=False):
             BOLD,
         )
     )
-    print("-" * total)
+    roll("-" * total)
     for number, x in numbered:
         sub_cell = f"{subs[number]:<{w_sub}} " if show_sub else ""
         account_cell_text = f"{accounts[number]:<{w_account}} " if show_account else ""
@@ -152,8 +153,8 @@ def print_transactions(numbered, title=None, show_times=False):
         )
         if show_times:
             line += f"  {created[number]:<{w_created}}  {updated[number]:<{w_updated}}"
-        print(paint(line, type_color(x.kind)))
-    print("-" * total)
+        roll(paint(line, type_color(x.kind)))
+    roll("-" * total)
 
 
 def print_category_breakdown(transactions, trans_type):
@@ -197,23 +198,23 @@ def print_category_breakdown(transactions, trans_type):
     amounts += [money(sub_total) for _, _, subs in printable for _, sub_total in subs]
     amount_width = max([12] + [len(a) for a in amounts])
 
-    print(paint(f"\n  {t('by_category', type=type_label(trans_type))}", type_color(trans_type)))
+    roll(paint(f"\n  {t('by_category', type=type_label(trans_type))}", type_color(trans_type)))
 
     for category, total, sub_rows in printable:
-        print(f"    {category_display(category):<{label_width}}  {money(total):>{amount_width}}")
+        roll(f"    {category_display(category):<{label_width}}  {money(total):>{amount_width}}")
         for name, sub_total in sub_rows:
             label = subcategory_display(name)
-            print(paint(f"      {label:<{label_width}}  {money(sub_total):>{amount_width}}", DIM))
+            roll(paint(f"      {label:<{label_width}}  {money(sub_total):>{amount_width}}", DIM))
 
 
 def print_summary(transactions, totals, title=None):
     """Print totals plus a per-category breakdown."""
     title = title or t("summary")
-    print(paint(f"\n{title}", BOLD, CYAN))
-    print(f"{t('total_income')}{paint(money(totals.income), GREEN)}")
-    print(f"{t('total_expenses')}{paint(money(totals.expenses), RED)}")
-    print(f"{t('balance')}{paint(money(totals.balance), BOLD, amount_color(totals.balance))}")
-    print(f"{t('count')}{totals.count}")
+    roll(paint(f"\n{title}", BOLD, CYAN))
+    roll(f"{t('total_income')}{paint(money(totals.income), GREEN)}")
+    roll(f"{t('total_expenses')}{paint(money(totals.expenses), RED)}")
+    roll(f"{t('balance')}{paint(money(totals.balance), BOLD, amount_color(totals.balance))}")
+    roll(f"{t('count')}{totals.count}")
 
     print_category_breakdown(transactions, INCOME)
     print_category_breakdown(transactions, EXPENSE)
@@ -230,30 +231,30 @@ def format_change(change):
 def print_monthly_report(report):
     """Print one month's totals, comparison, and category breakdown."""
     heading = t("report_title", month=format_month(report.year, report.month))
-    print(paint(f"\n{heading}", BOLD, CYAN))
+    roll(paint(f"\n{heading}", BOLD, CYAN))
 
     if report.is_empty:
-        print(paint(t("report_no_data"), YELLOW))
+        roll(paint(t("report_no_data"), YELLOW))
         return
 
-    print(f"{t('total_income')}{paint(money(report.totals.income), GREEN)}")
-    print(f"{t('total_expenses')}{paint(money(report.totals.expenses), RED)}")
-    print(
+    roll(f"{t('total_income')}{paint(money(report.totals.income), GREEN)}")
+    roll(f"{t('total_expenses')}{paint(money(report.totals.expenses), RED)}")
+    roll(
         f"{t('balance')}"
         f"{paint(money(report.totals.balance), BOLD, amount_color(report.totals.balance))}"
     )
-    print(f"{t('count')}{report.totals.count}")
+    roll(f"{t('count')}{report.totals.count}")
 
     if report.has_previous:
-        print(paint(f"\n{t('report_vs_previous')}", BOLD))
+        roll(paint(f"\n{t('report_vs_previous')}", BOLD))
         income_change = report.income_change
         expense_change = report.expense_change
         # More income is good, more expenses are not - so the two are colored
         # by meaning rather than by sign.
         income_color = GREEN if (income_change or 0) >= 0 else RED
         expense_color = RED if (expense_change or 0) >= 0 else GREEN
-        print(f"  {t('total_income')}{paint(format_change(income_change), income_color)}")
-        print(f"  {t('total_expenses')}{paint(format_change(expense_change), expense_color)}")
+        roll(f"  {t('total_income')}{paint(format_change(income_change), income_color)}")
+        roll(f"  {t('total_expenses')}{paint(format_change(expense_change), expense_color)}")
 
     print_category_breakdown(report.transactions, INCOME)
     print_category_breakdown(report.transactions, EXPENSE)
@@ -279,8 +280,8 @@ def print_budgets(statuses, year, month):
     """Print every budget with the amount spent, remaining, and a usage bar."""
     heading = f"{t('budgets_title')} ({format_month(year, month)})"
     if not statuses:
-        print(paint(f"\n{heading}", BOLD, CYAN))
-        print(paint(t("no_budgets"), YELLOW))
+        roll(paint(f"\n{heading}", BOLD, CYAN))
+        roll(paint(t("no_budgets"), YELLOW))
         return
 
     labels = {s.category_id: category_display(s.category) for s in statuses}
@@ -298,9 +299,9 @@ def print_budgets(statuses, year, month):
     w_usage = 2 + len(usage_bar(Decimal("0"))) + 1 + 5
     total = 4 + w_cat + 2 + w_spent + 2 + w_limit + 2 + w_left + w_usage
 
-    print(paint(f"\n{heading}", BOLD, CYAN))
-    print("-" * total)
-    print(
+    roll(paint(f"\n{heading}", BOLD, CYAN))
+    roll("-" * total)
+    roll(
         paint(
             f"{'#':<4}{t('field_category'):<{w_cat}}  "
             f"{t('budget_spent'):>{w_spent}}  {t('budget_limit'):>{w_limit}}  "
@@ -308,7 +309,7 @@ def print_budgets(statuses, year, month):
             BOLD,
         )
     )
-    print("-" * total)
+    roll("-" * total)
     for i, status in enumerate(statuses, start=1):
         bar = usage_bar(status.fraction_used)
         percent = f"{status.percent_used:.0f}%"
@@ -318,8 +319,8 @@ def print_budgets(statuses, year, month):
             f"{limit_strs[status.category_id]:>{w_limit}}  "
             f"{left_strs[status.category_id]:>{w_left}}  {bar} {percent:>5}"
         )
-        print(paint(line, budget_state_color(status.state)))
-    print("-" * total)
+        roll(paint(line, budget_state_color(status.state)))
+    roll("-" * total)
 
 
 def print_budget_warning(status):
@@ -327,7 +328,7 @@ def print_budget_warning(status):
     if status is None:
         return
     if status.state == OVER:
-        print(
+        roll(
             paint(
                 t(
                     "budget_over",
@@ -339,7 +340,7 @@ def print_budget_warning(status):
             )
         )
     else:
-        print(
+        roll(
             paint(
                 t(
                     "budget_near",
@@ -359,7 +360,7 @@ def print_recurring(rules, as_of, category_names=None, account_names=None):
     database access.
     """
     if not rules:
-        print(paint(f"\n{t('no_recurring')}", YELLOW))
+        roll(paint(f"\n{t('no_recurring')}", YELLOW))
         return
 
     category_names = category_names or {}
@@ -379,9 +380,9 @@ def print_recurring(rules, as_of, category_names=None, account_names=None):
     w_amount = max([len(t("field_amount"))] + [len(v) for v in amounts])
     total = 4 + w_type + 1 + w_desc + 1 + w_cat + 1 + w_acct + 1 + w_freq + 1 + w_amount
 
-    print(paint(f"\n{t('recurring_title')}", BOLD, CYAN))
-    print("-" * total)
-    print(
+    roll(paint(f"\n{t('recurring_title')}", BOLD, CYAN))
+    roll("-" * total)
+    roll(
         paint(
             f"{'#':<4}{t('field_type'):<{w_type}} "
             f"{t('field_description'):<{w_desc}} {t('field_category'):<{w_cat}} "
@@ -390,24 +391,24 @@ def print_recurring(rules, as_of, category_names=None, account_names=None):
             BOLD,
         )
     )
-    print("-" * total)
+    roll("-" * total)
     for i, rule in enumerate(rules, start=1):
         line = (
             f"{i:<4}{labels[i - 1]:<{w_type}} {rule.description:<{w_desc}} "
             f"{paths[i - 1]:<{w_cat}} {accts[i - 1]:<{w_acct}} "
             f"{freqs[i - 1]:<{w_freq}} {amounts[i - 1]:>{w_amount}}"
         )
-        print(paint(line, type_color(rule.kind)))
+        roll(paint(line, type_color(rule.kind)))
         upcoming = next_occurrence(rule)
         if upcoming is not None:
-            print(paint(f"    {t('next_occurrence', date=format_date(upcoming))}", DIM))
-    print("-" * total)
+            roll(paint(f"    {t('next_occurrence', date=format_date(upcoming))}", DIM))
+    roll("-" * total)
 
 
 def print_accounts(balances, show_total=True):
     """Print every account with its opening balance, movements and balance."""
     if not balances:
-        print(paint(f"\n{t('no_accounts')}", YELLOW))
+        roll(paint(f"\n{t('no_accounts')}", YELLOW))
         return
 
     names = [account_display(b.name) for b in balances]
@@ -426,16 +427,16 @@ def print_accounts(balances, show_total=True):
     w_balance = max([len(head_balance)] + [len(v) for v in totals])
     width = 4 + w_name + 2 + w_type + 2 + w_opening + 2 + w_balance
 
-    print(paint(f"\n{t('accounts_title')}", BOLD, CYAN))
-    print("-" * width)
-    print(
+    roll(paint(f"\n{t('accounts_title')}", BOLD, CYAN))
+    roll("-" * width)
+    roll(
         paint(
             f"{'#':<4}{head_name:<{w_name}}  {head_type:<{w_type}}  "
             f"{head_opening:>{w_opening}}  {head_balance:>{w_balance}}",
             BOLD,
         )
     )
-    print("-" * width)
+    roll("-" * width)
     # Only real accounts are numbered. The unassigned row is a summary of
     # transactions that belong to no account - numbering it would make it look
     # like something that can be chosen, edited or deleted.
@@ -450,15 +451,15 @@ def print_accounts(balances, show_total=True):
             f"{label:<4}{account_display(item.name):<{w_name}}  {item.kind:<{w_type}}  "
             f"{openings[position]:>{w_opening}}  {totals[position]:>{w_balance}}"
         )
-        print(paint(line, amount_color(item.balance)))
-    print("-" * width)
+        roll(paint(line, amount_color(item.balance)))
+    roll("-" * width)
 
     if any(item.is_unassigned for item in balances):
-        print(paint(f"  {t('unassigned_legend')}", DIM))
+        roll(paint(f"  {t('unassigned_legend')}", DIM))
 
     if show_total:
         combined = sum((b.balance for b in balances), ZERO)
-        print(f"{t('account_total')}{paint(money(combined), BOLD, amount_color(combined))}")
+        roll(f"{t('account_total')}{paint(money(combined), BOLD, amount_color(combined))}")
 
 
 def action_label(action):
@@ -550,14 +551,14 @@ def print_history(entries, title=None, names=None, number=None):
     transaction has no row any more.
     """
     if not entries:
-        print(paint(f"\n{t('no_history')}", YELLOW))
+        roll(paint(f"\n{t('no_history')}", YELLOW))
         return
 
-    print(paint(f"\n{title or t('history_title')}", BOLD, CYAN))
+    roll(paint(f"\n{title or t('history_title')}", BOLD, CYAN))
     for entry in entries:
         shown = number if number is not None else entry.entity_id
         heading = f"{entry.at}  {action_label(entry.action)} {entity_label(entry.entity)} #{shown}"
-        print(paint(heading, BOLD))
+        roll(paint(heading, BOLD))
 
         changes = entry.changes()
         if not changes:
@@ -567,7 +568,7 @@ def print_history(entries, title=None, names=None, number=None):
         for field, before, after in changes:
             shown_before = audit_value(field, before, names)
             shown_after = audit_value(field, after, names)
-            print(
+            roll(
                 paint(
                     f"    {labels[field]:<{width}}  {shown_before}  ->  {shown_after}",
                     DIM,
@@ -584,7 +585,7 @@ def print_candidates(candidates, decimal_separator=None, date_label=None):
     was meant is how they get caught.
     """
     if not candidates:
-        print(paint(f"\n{t('import_nothing')}", YELLOW))
+        roll(paint(f"\n{t('import_nothing')}", YELLOW))
         return
 
     numbers = {c.row_number: str(index) for index, c in enumerate(candidates, start=1)}
@@ -614,17 +615,17 @@ def print_candidates(candidates, decimal_separator=None, date_label=None):
 
     total = 2 + w_num + w_date + w_type + w_desc + w_cat + w_amount + w_status + 7
 
-    print()
+    roll()
     if decimal_separator or date_label:
         detected = []
         if date_label:
             detected.append(t("import_date_format", format=date_label))
         if decimal_separator:
             detected.append(t("import_number_format", separator=decimal_separator))
-        print(paint("  " + "   ".join(detected), DIM))
+        roll(paint("  " + "   ".join(detected), DIM))
 
-    print("-" * total)
-    print(
+    roll("-" * total)
+    roll(
         paint(
             f"{'':<2}{'#':<{w_num}} {t('field_date'):<{w_date}} "
             f"{t('field_type'):<{w_type}} {t('field_description'):<{w_desc}} "
@@ -633,7 +634,7 @@ def print_candidates(candidates, decimal_separator=None, date_label=None):
             BOLD,
         )
     )
-    print("-" * total)
+    roll("-" * total)
 
     for candidate in candidates:
         key = candidate.row_number
@@ -645,18 +646,18 @@ def print_candidates(candidates, decimal_separator=None, date_label=None):
             f"{statuses[key]:<{w_status}}"
         )
         if not candidate.importable:
-            print(paint(line, RED))
+            roll(paint(line, RED))
         elif candidate.duplicate_of is not None:
-            print(paint(line, YELLOW))
+            roll(paint(line, YELLOW))
         elif candidate.will_import:
-            print(paint(line, type_color(candidate.kind)))
+            roll(paint(line, type_color(candidate.kind)))
         else:
-            print(paint(line, DIM))
+            roll(paint(line, DIM))
 
-    print("-" * total)
-    print()
+    roll("-" * total)
+    roll()
     chosen = sum(1 for c in candidates if c.will_import)
-    print(paint(t("import_selected", count=chosen, total=len(candidates)), BOLD))
+    roll(paint(t("import_selected", count=chosen, total=len(candidates)), BOLD))
 
 
 # A three-quarter block rather than a full one. A full block fills the whole
@@ -684,9 +685,9 @@ def print_category_chart(bars, title, color=None):
     """A horizontal bar per category, largest first."""
     from .charts import has_data, percent
 
-    print(paint(f"\n{title}", BOLD, CYAN))
+    roll(paint(f"\n{title}", BOLD, CYAN))
     if not has_data(bars):
-        print(paint(t("no_chart_data"), YELLOW))
+        roll(paint(t("no_chart_data"), YELLOW))
         return
 
     labels = {i: category_display(b.label) for i, b in enumerate(bars)}
@@ -699,22 +700,22 @@ def print_category_chart(bars, title, color=None):
             f"  {labels[index]:<{w_label}}  {bar_of(bar.fraction)}  "
             f"{amounts[index]:>{w_amount}}  {percent(bar.share):>3}%"
         )
-        print(paint(line, color) if color else line)
+        roll(paint(line, color) if color else line)
 
 
 def print_monthly_chart(income_bars, expense_bars, title):
     """Income and expenses side by side, one row per month."""
     from .charts import has_data
 
-    print(paint(f"\n{title}", BOLD, CYAN))
+    roll(paint(f"\n{title}", BOLD, CYAN))
     if not has_data(income_bars) and not has_data(expense_bars):
-        print(paint(t("no_chart_data"), YELLOW))
+        roll(paint(t("no_chart_data"), YELLOW))
         return
 
     half = BAR_WIDTH // 2
     w_amount = max([len(money(b.amount)) for b in income_bars + expense_bars] or [6])
 
-    print(
+    roll(
         paint(
             f"  {'':<7}  {t('field_income'):<{half + w_amount + 2}}  {t('field_expenses')}",
             DIM,
@@ -726,16 +727,16 @@ def print_monthly_chart(income_bars, expense_bars, title):
             f"{money(earned.amount):>{w_amount}}"
             f"  {bar_of(spent.fraction, half)} {money(spent.amount):>{w_amount}}"
         )
-        print(line)
+        roll(line)
 
 
 def print_account_chart(bars, title):
     """A bar per account. Negative balances are drawn to the left of zero."""
     from .charts import has_data
 
-    print(paint(f"\n{title}", BOLD, CYAN))
+    roll(paint(f"\n{title}", BOLD, CYAN))
     if not has_data(bars):
-        print(paint(t("no_chart_data"), YELLOW))
+        roll(paint(t("no_chart_data"), YELLOW))
         return
 
     labels = {i: account_display(b.label) for i, b in enumerate(bars)}
@@ -747,4 +748,4 @@ def print_account_chart(bars, title):
         drawn = bar_of(bar.fraction)
         colour = RED if bar.amount < 0 else GREEN
         line = f"  {labels[index]:<{w_label}}  {drawn}  {amounts[index]:>{w_amount}}"
-        print(paint(line, colour))
+        roll(paint(line, colour))

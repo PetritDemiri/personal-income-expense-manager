@@ -15,6 +15,7 @@ Nothing here validates a code. It collects characters and hands them back.
 
 import sys
 
+from . import typewriter
 from .colors import BOLD, CYAN, DIM, paint
 
 EMPTY = "_"
@@ -101,7 +102,25 @@ def prompt_code(label, length, allowed=None):
     Where the terminal cannot be read a keystroke at a time - a pipe, a
     script, the tests - it falls back to reading a whole line, and the same
     input is accepted.
+
+    A code typed in full, Enter and all, while the text before the boxes was
+    still appearing goes into the boxes as if typed there.
     """
+    try:
+        return _collect(label, length, allowed)
+    finally:
+        # A question answered: what follows starts afresh, as after any other.
+        typewriter.settle()
+
+
+def _collect(label, length, allowed):
+    ahead = typewriter.typed_ahead()
+    if ahead is not None:
+        typed = "".join(key for key in ahead if _fits(key, allowed))[:length]
+        sys.stdout.write("\r\033[K" + label + render(typed, length) + "\n")
+        sys.stdout.flush()
+        return typed
+
     if not _supported():
         try:
             return input(label)
@@ -127,9 +146,7 @@ def prompt_code(label, length, allowed=None):
         if key in ("\x7f", "\x08"):
             typed = typed[:-1]
             continue
-        if not key.isprintable() or len(typed) >= length:
-            continue
-        if allowed is not None and key not in allowed:
+        if not _fits(key, allowed) or len(typed) >= length:
             continue
 
         typed += key
@@ -138,3 +155,8 @@ def prompt_code(label, length, allowed=None):
             sys.stdout.write("\r\033[K" + label + render(typed, length) + "\n")
             sys.stdout.flush()
             return typed
+
+
+def _fits(key, allowed):
+    """Whether a key may go into a box."""
+    return key.isprintable() and (allowed is None or key in allowed)

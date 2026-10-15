@@ -74,9 +74,9 @@ class TestTheMenus:
     def test_the_users_menu(self, app, answers, capsys):
         from personal_finance.ui import users_menu
 
-        # An administrator's menu has eight entries, so going back is the ninth.
+        # An administrator's menu has nine entries, so going back is the tenth.
         assert app.is_admin
-        answers("²", "9")
+        answers("²", "10")
         users_menu(app)
         assert "Zgjedhje e pavlefshme" in capsys.readouterr().out
 

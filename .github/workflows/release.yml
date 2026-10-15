@@ -1,0 +1,75 @@
+name: Release
+
+# Builds financat.exe, the Windows download, from the commit a version tag
+# points at, and publishes it on that version's release page.
+#
+# Started by hand from the Actions tab, it builds and checks the .exe without
+# publishing anything: the .exe and the release notes are kept with the run, to
+# try before the version is tagged.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  exe:
+    name: Windows .exe
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install the package with test and build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,build]"
+
+      # First, so a tag that is not the program's version stops everything.
+      - name: Write the release notes
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: python .github/release_notes.py notes.md ${TAG:+"$TAG"}
+
+      - name: Run the tests
+        run: pytest
+
+      - name: Build financat.exe
+        run: pyinstaller windows/financat.spec --noconfirm
+
+      # The tests packed inside it, run by the .exe itself - what a first
+      # launch does on somebody's computer.
+      - name: Run the tests inside the .exe
+        run: dist/financat.exe --run-bundled-tests
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/financat.exe --clobber
+          else
+            gh release create "$TAG" dist/financat.exe --title "$TAG" --notes-file notes.md --verify-tag
+          fi
+
+      - name: Keep the .exe and the notes
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: financat-exe
+          path: |
+            dist/financat.exe
+            notes.md

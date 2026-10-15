@@ -215,7 +215,9 @@ def forget_setup(connection, directory):
 # anything a person made. Every other table with a user_id is that person's
 # own, including any added later - the safe default for a check whose other
 # answer is deleting an account.
-_NOT_BELONGINGS = frozenset({"admin_setup", "audit_log", "password_resets", "sessions"})
+_NOT_BELONGINGS = frozenset(
+    {"admin_setup", "audit_log", "password_resets", "preferences", "sessions"}
+)
 
 
 def owns_anything(connection, user_id):

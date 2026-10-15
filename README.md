@@ -23,11 +23,16 @@ The first run, where an empty database hands out the credentials for its adminis
 - **Recurring transactions** — weekly, monthly, or yearly, generated atomically when due
 - **CSV export** — write transactions to a spreadsheet-ready file, with any filter applied
 - **Colored output** — income green, expenses red, transfers cyan, with automatic fallback
+- **Typing effect** — messages appear as if typed and menus roll in, never for more than about a second; Enter skips it, and each person can switch it off
 - **Two languages** — Albanian by default, English via `--gjuha en`; stored data is identical either way
 - **Exact money** — integer cents in the database, `Decimal` in the program, never a float
 - **Checks itself** — the first time it is opened, the program runs its own tests on screen and says how they went
 
 ## Install
+
+**Windows:** download `financat.exe` from the [latest release](https://github.com/PetritDemiri/personal-income-expense-manager/releases/latest) and open it. Nothing else needs installing — Python and the program are both inside it. The first time it opens it runs its own tests, which takes one to three minutes; see [The first launch](#the-first-launch). It is not signed, so Windows may say it protected your PC: choose *More info*, then *Run anyway*. Some antivirus programs also distrust executables built this way when they are new.
+
+**From the source**, anywhere Python 3.9 or later runs:
 
 ```bash
 git clone https://github.com/PetritDemiri/personal-income-expense-manager.git
@@ -160,6 +165,7 @@ Files you are meant to pick up — exports, the first-run credentials, a passwor
 | `FINANCE_DATA_DIR` | only the database |
 | `FINANCE_EXPORT_DIR` | exports and the files you are meant to pick up — never the database |
 | `FINANCE_SKIP_TESTS` | switches the first-launch tests off |
+| `FINANCE_TYPING` | `0` switches the [typing effect](#typing-effect) off, for everyone |
 
 **Upgrading from 3.9 or earlier.** The first time 3.10.0 runs from a folder that holds an older `finance.db`, it copies it to `Te dhenat` and says so. It is copied, never moved: the original is left exactly as it was, so nothing can be lost if the copy goes wrong — delete it yourself once you are happy. If it cannot be copied, it is used where it is. Naming the folder with `FINANCE_DATA_DIR`, or the file with `--baza`, skips all of this.
 
@@ -167,7 +173,7 @@ Files you are meant to pick up — exports, the first-run credentials, a passwor
 
 One database can hold several people's finances, kept entirely separate. Every account, category, transaction, budget and rule belongs to exactly one person, and no query crosses between them.
 
-Anyone who never creates a second user sees no change at all: a database always has one, everything belongs to them, and the interface never mentions it. `--perdoruesi EMRI` switches, and menu option 18 manages them.
+Anyone who never creates a second user sees no change at all: a database always has one, everything belongs to them, and the interface never mentions it. `--perdoruesi EMRI` switches, and menu option 18 manages them. Everyone, administrator or not, also switches the [typing effect](#typing-effect) for themselves there.
 
 Two people can both have an account called `Banka` and a category called `Ushqim`, which is why the uniqueness constraints are per-user rather than global.
 
@@ -219,9 +225,9 @@ The log records whose account changed, not who changed it. SQLite triggers canno
 
 The first time a person opens the program, it checks itself before anything else: it runs its own test suite on screen, says how it went, and waits for Enter. That takes one to three minutes, and happens once — it writes down that it has run in `Documents\Financat\Testet\testet.txt`, with the date, the version and how many tests passed, failed or were skipped. Delete that file to run them again.
 
-They run only where they exist — a copy of the source with pytest installed — and only for a person at a terminal: a script, a piped command or any run with flags never waits on them. `FINANCE_SKIP_TESTS=1` switches them off.
+They run only where they exist — a copy of the source with pytest installed, or the `.exe`, which has both packed inside it — and only for a person at a terminal: a script, a piped command or any run with flags never waits on them. `FINANCE_SKIP_TESTS=1` switches them off.
 
-They run in a process of their own rather than inside the program. pytest takes over the standard streams while it works and, on Windows, does not hand the originals back — inside the program, the password typed at the first-run setup afterwards was shown as it was typed.
+They run in a process of their own rather than inside the program. pytest takes over the standard streams while it works and, on Windows, does not hand the originals back — inside the program, the password typed at the first-run setup afterwards was shown as it was typed. A copy of the source starts that process with Python; the `.exe` has no Python beside it, so it starts itself in its test mode, `--run-bundled-tests`, and runs pytest inside.
 
 ### An unclaimed database
 
@@ -435,6 +441,25 @@ Colour is decided once at start-up, in this order:
 
 On Windows, ANSI support is switched on through the console API at start-up; if that call fails the program falls back to plain text rather than printing escape codes at you.
 
+### Typing effect
+
+Text appears as if it were being typed. Not everything is said the same way:
+
+| What | How it appears |
+|---|---|
+| Headings and messages | typed, about 40 letters a second |
+| Questions | typed, twice as fast |
+| Menus, lists, tables, reports, and the hints above a question | a line at a time — a whole menu in under half a second |
+| Errors, passwords, the code boxes, crash reports, the first-launch tests | at once |
+
+**It never keeps you waiting.** A long message is typed faster rather than for longer, and everything shown between two questions together takes about a second at most — past that, the rest appears at once. **Enter** shows the rest straight away, and is used up doing it: it never answers the question that follows. An answer typed in full while text is still appearing answers the next question, and the screen it answers appears at once.
+
+It is only for a person at a terminal. A run with flags, a script, a pipe and the tests get plain output, exactly as before.
+
+**Each person decides for themselves.** "Efekti i shkrimit" in the users menu (option 18) switches it off or on for whoever is signed in, says which it is now, and is remembered for next time. It is on until switched off. The sign-in screen belongs to nobody yet, so it is typed for everyone. `FINANCE_TYPING=0` switches it off for everyone.
+
+Watching for Enter while text appears works differently on each system. On Linux and macOS the terminal holds a line until Enter is pressed, so input waiting means Enter was; what you type is hidden meanwhile, so it cannot break the line being typed. On Windows the console's input is looked at without being taken, and only an Enter is taken — any other key is the start of an answer, and is left where it is. If the terminal fails either, the effect switches itself off for the rest of the run and the text appears at once: it never stops the program.
+
 ### Charts
 
 Bar charts drawn with block characters — no plotting library, and nothing to install. Menu option 10, or `--grafiku`.
@@ -492,10 +517,14 @@ personal_finance/
     codeentry.py   Typing a one-time code into boxes
     selftest.py    The tests the first launch runs
     console.py     The window: its title, crashes, and being closed
+    typewriter.py  The typing effect, and watching for Enter while it runs
     app.py         Service layer tying it together
     ui.py          Interactive prompts and menus
     cli.py         argparse entry point
 tests/             pytest suite
+windows/
+    financat.py    Where financat.exe starts
+    financat.spec  How financat.exe is built
 ```
 
 Two design points worth knowing:
@@ -516,7 +545,19 @@ ruff check . && ruff format --check .               # lint and format
 
 Tests and lint run on every push via GitHub Actions, across Linux, macOS, and Windows.
 
-The suite gives every test folders of its own and switches the first-launch tests off, so it never reads or writes a real `Documents\Financat` — or copies a real `finance.db` from the working copy it runs in.
+The suite gives every test folders of its own and switches the first-launch tests off, so it never reads or writes a real `Documents\Financat` — or copies a real `finance.db` from the working copy it runs in. It switches the typing effect off too; the tests of the effect itself run it in a terminal of their own, on the systems that have one.
+
+### Building the Windows .exe
+
+```powershell
+pip install -e ".[dev,build]"
+pyinstaller windows/financat.spec --noconfirm     # writes dist\financat.exe
+dist\financat.exe --run-bundled-tests             # the tests packed inside it
+```
+
+PyInstaller builds for the system it runs on, so the `.exe` is built on Windows. The test suite goes inside it with pytest, so the `.exe` checks itself on its first launch the way a copy of the source does, and so does the program's own source, which some tests read.
+
+Releases build it themselves. Pushing a version tag starts `.github/workflows/release.yml` on a Windows machine at GitHub: it runs the tests, builds the `.exe`, runs the tests packed inside it, and publishes the release with the `.exe` attached and that version's changelog entry as its notes. A tag that is not the program's version stops it before anything is built. Started by hand from the Actions tab, it does the same without publishing anything, and keeps the `.exe` with the run to try first.
 
 ### Recording the demo GIFs
 
