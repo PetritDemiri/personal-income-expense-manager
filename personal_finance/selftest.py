@@ -18,7 +18,8 @@ the originals back, after which a password typed at the first-run setup was
 shown on screen as it was typed. In a separate process nothing it does can
 reach the program's own input. A copy of the source starts that process with
 Python. The .exe has no Python to start - it is the only program there is - so
-it starts itself, in its test mode, and runs pytest inside that.
+it starts a second copy of itself, in its test mode, and runs pytest inside
+that. Either way, the process is handed each of its streams directly.
 """
 
 import datetime
@@ -43,6 +44,8 @@ TEST_MODE = "--run-bundled-tests"
 # Tells PyInstaller's start-up code that a copy of the .exe is a program of its
 # own rather than a part of the copy that started it.
 FRESH_COPY_ENV = "PYINSTALLER_RESET_ENVIRONMENT"
+# Where the program's own output goes: standard output, as Python has it.
+SCREEN = 1
 
 # How a run ended, as written into the record.
 RAN = "ran"
@@ -115,6 +118,13 @@ def run_suite(tests):
 
     When they cannot run, the result says why. What the run wrote to standard
     error is kept for that, and still shown, once it has ended.
+
+    Each of its streams is handed over directly, rather than left for the
+    system to find: no keyboard, since nothing in it types; the screen as
+    Python has it now; and a pipe for its errors. Left for Windows to find,
+    inside the .exe, a stream Python has redirected - as pytest does while it
+    tests - could be one Windows had already closed: "[WinError 6] The handle
+    is invalid", and the copy never started.
     """
     root = os.path.dirname(tests)
     handle, report = tempfile.mkstemp(prefix="financat-", suffix=".xml")
@@ -139,6 +149,8 @@ def run_suite(tests):
                 cwd=root,
                 env=environment,
                 check=False,
+                stdin=subprocess.DEVNULL,
+                stdout=SCREEN,
                 stderr=subprocess.PIPE,
                 text=True,
                 errors="replace",
@@ -201,21 +213,28 @@ def pytest_arguments(tests):
 
 
 def run_inside(arguments):
-    """The .exe's test mode: pytest, run inside this program.
+    """The .exe's test mode.
 
-    What the first launch starts, in a process of its own, where there is no
-    Python to start pytest with. Given nothing, it runs the suite packed into
-    the .exe - which is how a release is checked before it is published.
+    Given pytest's arguments, it runs pytest inside this copy: what the first
+    launch starts a second copy of the .exe to do, there being no Python to
+    start pytest with.
+
+    Given nothing, it checks this copy the way its first launch does - by
+    starting that second copy - shows how it went, and ends in success only if
+    every test ran and passed. That is how a release is checked before it is
+    published, so the check is the first launch's own, not a likeness of it.
     """
-    import pytest
+    if arguments:
+        import pytest
 
-    if not arguments:
-        tests = tests_directory()
-        if tests is None:
-            print("There are no tests in this copy of the program.", file=sys.stderr)
-            return int(pytest.ExitCode.USAGE_ERROR)
-        arguments = pytest_arguments(tests)
-    return int(pytest.main(arguments))
+        return int(pytest.main(arguments))
+    tests = tests_directory()
+    if tests is None:
+        print("There are no tests in this copy of the program.", file=sys.stderr)
+        return 1
+    result = run_suite(tests)
+    show_result(result)
+    return 0 if result.outcome == RAN and not result.failed else 1
 
 
 def read_report(path):
@@ -288,7 +307,14 @@ def run_on_first_launch(pause, run=run_suite):
 
     result = run(tests_directory())
     saved = write_record(result)
+    show_result(result, saved)
+    pause(t("press_enter_continue"))
+    return True
 
+
+def show_result(result, saved=None):
+    """How a run went, in a line - and where it was written down, unless all
+    went well."""
     print()
     if result.outcome == INTERRUPTED:
         print(paint(t("tests_interrupted"), YELLOW))
@@ -302,5 +328,3 @@ def run_on_first_launch(pause, run=run_suite):
         print(paint(t("tests_all_passed", count=result.passed), BOLD, GREEN))
     if saved and (result.failed or result.outcome != RAN):
         print(t("tests_saved", path=saved))
-    pause(t("press_enter_continue"))
-    return True

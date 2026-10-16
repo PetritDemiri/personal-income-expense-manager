@@ -19,9 +19,9 @@ CHANGELOG = Path(__file__).resolve().parent.parent / "CHANGELOG.md"
 
 DOWNLOAD = """\
 **Windows:** download `financat.exe` below. Nothing else needs installing. The
-first time it opens, it runs its own tests on screen, which takes one to three
-minutes. It is not signed, so Windows may say it protected your PC: choose
-*More info*, then *Run anyway*.
+first time it opens, it runs its own tests on screen, which usually takes one
+to five minutes. It is not signed, so Windows may say it protected your PC:
+choose *More info*, then *Run anyway*.
 """
 
 

@@ -3,7 +3,9 @@
 The .exe cannot start the way `python -m personal_finance` does, so it starts
 here. It does one more thing than that: the first-launch tests run in a process
 of their own, and the .exe has no Python to start that process with - so it
-starts itself, with --run-bundled-tests, and runs pytest inside.
+starts a second copy of itself, with --run-bundled-tests and pytest's
+arguments, which runs pytest inside. Started with --run-bundled-tests alone,
+it checks itself exactly as its first launch would.
 
 Built into the .exe by financat.spec, beside this file.
 """

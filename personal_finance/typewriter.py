@@ -372,7 +372,9 @@ class WindowsKeys:
         import ctypes
 
         if kernel32 is None:
-            kernel32 = ctypes.windll.kernel32
+            # A copy of its own, so declaring a function's types here changes
+            # nothing for the rest of the program, which shares ctypes.windll.
+            kernel32 = ctypes.WinDLL("kernel32")
             # A handle is pointer-sized; the default would cut it to 32 bits.
             kernel32.GetStdHandle.restype = ctypes.c_void_p
         self.ctypes = ctypes

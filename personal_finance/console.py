@@ -55,7 +55,13 @@ def window_closed():
 
 
 def pause(message):
-    """Wait for Enter, so the last thing printed can be read before the window goes."""
+    """Wait for Enter, so the last thing printed can be read before the window goes.
+
+    Keys pressed before now are forgotten first: an Enter pressed while the
+    first-launch tests were still running - minutes, on some computers - would
+    otherwise answer this at once, and the result would go before it was read.
+    """
+    forget_keys_pressed()
     try:
         input(f"\n{message}")
     except (EOFError, KeyboardInterrupt, OSError):
@@ -63,6 +69,23 @@ def pause(message):
             print()
         except OSError:
             pass
+
+
+def forget_keys_pressed():
+    """Throw away whatever has been typed and not yet read. Never fails."""
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+        else:
+            import termios
+
+            termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+    except Exception:
+        # Not a terminal, or none at all: then nothing was typed into it.
+        pass
 
 
 # ---------------------------------------------------------------------------

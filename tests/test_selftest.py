@@ -254,6 +254,33 @@ class TestRunningARealSuite:
         monkeypatch.setattr(selftest.subprocess, "run", missing)
         assert run_suite(tiny) == Result(NOT_RUN, reason="no such file")
 
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows' record of a program's streams")
+    def test_windows_record_of_the_streams_is_never_asked(self, tiny):
+        """Inside the .exe, while pytest has the screen, Windows' record of a
+        program's keyboard and screen can name handles already closed. Asked
+        for them, Windows refused to start the copy: "[WinError 6] The handle
+        is invalid". Here that record names a handle nothing has, and the copy
+        still starts, because it is handed each of its streams directly."""
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+        kernel32.GetStdHandle.restype = wintypes.HANDLE
+        kernel32.SetStdHandle.argtypes = [wintypes.DWORD, wintypes.HANDLE]
+        kernel32.SetStdHandle.restype = wintypes.BOOL
+
+        keyboard_and_screen = (-10, -11)
+        kept = {stream: kernel32.GetStdHandle(stream) for stream in keyboard_and_screen}
+        try:
+            for stream in keyboard_and_screen:
+                assert kernel32.SetStdHandle(stream, 0x0FFFFFF0)
+            result = run_suite(tiny)
+        finally:
+            for stream, handle in kept.items():
+                kernel32.SetStdHandle(stream, handle)
+        assert result == Result(RAN, passed=2, failed=1, skipped=1)
+
     def test_a_suite_that_cannot_start_says_why(self, tiny, capsys):
         """No report means no counts - but how it ended is still known."""
         conftest = os.path.join(tiny, "conftest.py")
@@ -307,15 +334,17 @@ class TestInsideTheExe:
     """
 
     class Started:
-        """What run_suite started, and with what environment."""
+        """What run_suite started, with what environment and which streams."""
 
         def __init__(self):
             self.commands = []
             self.environments = []
+            self.streams = []
 
         def __call__(self, command, **kwargs):
             self.commands.append(command)
             self.environments.append(kwargs["env"])
+            self.streams.append({name: kwargs.get(name) for name in ("stdin", "stdout", "stderr")})
             return selftest.subprocess.CompletedProcess(command, 0, stderr="")
 
     @pytest.fixture
@@ -362,23 +391,78 @@ class TestInsideTheExe:
         run_suite(str(tmp_path / "tests"))
         assert selftest.FRESH_COPY_ENV not in started.environments[0]
 
+    @pytest.mark.parametrize("frozen", [True, False])
+    def test_every_stream_is_handed_over(self, started, monkeypatch, tmp_path, frozen):
+        """None is left for the system to find. Inside the .exe, Windows'
+        record of where they are named handles already closed: "[WinError 6]
+        The handle is invalid", and the copy never started."""
+        monkeypatch.setattr(sys, "frozen", frozen, raising=False)
+        run_suite(str(tmp_path / "tests"))
+        assert started.streams[0] == {
+            "stdin": selftest.subprocess.DEVNULL,
+            "stdout": selftest.SCREEN,
+            "stderr": selftest.subprocess.PIPE,
+        }
+
     def test_the_test_mode_runs_pytest_inside(self, monkeypatch):
         given = []
         monkeypatch.setattr(pytest, "main", lambda arguments: given.append(arguments) or 3)
         assert selftest.run_inside(["tests", "-q"]) == 3
         assert given == [["tests", "-q"]]
 
-    def test_on_its_own_it_runs_the_suite_packed_inside(self, monkeypatch):
-        """How a release is checked before it is published."""
+
+class TestCheckingACopy:
+    """`--run-bundled-tests` and nothing more: the check a first launch makes,
+    started by hand - a second copy runs the tests, and the first says how it
+    went. How a release is checked before it is published, so the check is
+    the first launch's own rather than a likeness of it."""
+
+    @pytest.fixture
+    def runs(self, monkeypatch):
+        """Each check gets this result, and the suite it was given is kept."""
         given = []
-        monkeypatch.setattr(pytest, "main", lambda arguments: given.append(arguments) or 0)
+
+        def answer(result):
+            def run(tests):
+                given.append(tests)
+                return result
+
+            monkeypatch.setattr(selftest, "run_suite", run)
+            return given
+
+        return answer
+
+    def test_it_runs_the_suite_packed_inside_the_way_a_first_launch_does(self, runs, capsys):
+        given = runs(Result(RAN, passed=12, skipped=3))
         assert selftest.run_inside([]) == 0
-        assert given == [selftest.pytest_arguments(selftest.tests_directory())]
+        assert given == [selftest.tests_directory()]
+        assert "Te gjitha 12 testet kaluan." in capsys.readouterr().out
+
+    def test_a_failure_fails_it(self, runs, capsys):
+        runs(Result(RAN, passed=10, failed=2))
+        assert selftest.run_inside([]) == 1
+        assert "2 teste deshtuan" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("outcome", [NOT_RUN, INTERRUPTED])
+    def test_so_does_a_run_that_did_not_finish(self, runs, outcome):
+        runs(Result(outcome))
+        assert selftest.run_inside([]) == 1
+
+    def test_and_says_why(self, runs, capsys):
+        runs(Result(NOT_RUN, reason="[WinError 6] The handle is invalid"))
+        selftest.run_inside([])
+        assert "Arsyeja: [WinError 6] The handle is invalid" in capsys.readouterr().out
+
+    def test_it_is_not_a_first_launch(self, runs, first_launch):
+        """Nothing is written down: the program has still not been opened."""
+        runs(Result(RAN, passed=12))
+        selftest.run_inside([])
+        assert not os.path.exists(record_path())
 
     def test_a_copy_without_tests_says_so(self, monkeypatch, capsys):
         monkeypatch.setattr(selftest, "tests_directory", lambda: None)
-        monkeypatch.setattr(pytest, "main", lambda _arguments: pytest.fail("ran"))
-        assert selftest.run_inside([]) == pytest.ExitCode.USAGE_ERROR
+        monkeypatch.setattr(selftest, "run_suite", lambda _tests: pytest.fail("ran"))
+        assert selftest.run_inside([]) == 1
         assert "no tests" in capsys.readouterr().err
 
 
@@ -395,7 +479,7 @@ class TestTheFirstLaunch:
         shown = capsys.readouterr().out
         assert "Kjo eshte hera e pare qe hapet programi." in shown
         assert "programi kontrollon veten me testet e tij" in shown
-        assert "nje deri ne tre minuta" in shown
+        assert "zakonisht zgjat nje deri ne pese minuta" in shown
 
     def test_it_waits_for_enter_after_showing_the_result(self, first_launch, capsys):
         pauses = Pauses()
@@ -438,6 +522,6 @@ class TestTheFirstLaunch:
         pauses = Pauses()
         run_on_first_launch(pauses, run=FakeRun(Result(RAN, passed=7)))
         shown = capsys.readouterr().out
-        assert "one to three minutes" in shown
+        assert "usually takes one to five minutes" in shown
         assert "All 7 tests passed." in shown
         assert pauses.messages == ["Press Enter to continue..."]

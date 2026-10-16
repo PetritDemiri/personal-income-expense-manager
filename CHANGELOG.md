@@ -51,6 +51,12 @@ anyone's way. And from this version on, every release comes with a Windows
   why: the error that stopped them starting, or how the run ended - its exit
   code and the last error it reported. Before, they said only that the tests
   could not be run.
+- A key pressed while the first-launch tests run no longer skips their result.
+  The run takes minutes on some computers, long enough to press Enter in case
+  it had stopped, and that Enter answered the "press Enter" after it at once.
+  The pause now forgets anything typed before it.
+- The first launch says the tests usually take one to five minutes, not one to
+  three: there are more of them now, and Windows runs them more slowly.
 
 ### Notes
 
@@ -79,8 +85,18 @@ anyone's way. And from this version on, every release comes with a Windows
   how PyInstaller starts such a copy unless told otherwise. On Windows that
   copy never ran the tests, and said nothing about why; one of the tests
   packed inside caught it before anything was published.
-- 1611 tests, up from 1489. Nine of the new ones need a real terminal of the
-  kind Linux and macOS have, and are skipped on Windows.
+- That copy is also handed each of its streams directly - no keyboard, the
+  screen as Python has it, a pipe for its errors - instead of leaving Windows
+  to find them. Inside the `.exe`, once pytest has taken over the screen,
+  Windows' record of where they are can name handles already closed: on a
+  computer's own console, two tests that start a further copy failed with
+  "[WinError 6] The handle is invalid". GitHub's build machine has no console,
+  so its check passed. That check now runs the `.exe` exactly as a first
+  launch does, its errors kept apart from its output, which is what would have
+  caught it there.
+- 1624 tests, up from 1489. Ten of the new ones need a real terminal of the
+  kind Linux and macOS have, and are skipped on Windows; two need Windows' own
+  console functions, and run only there.
 
 ## [3.11.2] — 2026-10-14
 

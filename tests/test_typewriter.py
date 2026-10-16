@@ -668,6 +668,16 @@ class TestWindowsKeys:
     def no_sleeping(self, monkeypatch):
         monkeypatch.setattr(typewriter.time, "sleep", lambda _seconds: None)
 
+    @pytest.mark.skipif(sys.platform != "win32", reason="the real Windows console functions")
+    def test_the_real_console_is_left_as_everything_else_finds_it(self):
+        """The rest of the program calls the same functions through the shared
+        ctypes.windll, and a type declared there would change them for it."""
+        import ctypes
+
+        before = ctypes.windll.kernel32.GetStdHandle.restype
+        typewriter.WindowsKeys().pause(0)
+        assert ctypes.windll.kernel32.GetStdHandle.restype is before
+
     def test_enter_is_taken(self):
         kernel = FakeKernel32(ENTER_DOWN)
         assert typewriter.WindowsKeys(kernel).pause(0.02) == ENTER

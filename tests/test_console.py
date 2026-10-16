@@ -89,6 +89,52 @@ class TestPause:
         monkeypatch.setattr(builtins, "input", closed)
         console.pause("...")
 
+    def test_keys_pressed_before_it_do_not_answer_it(self, monkeypatch):
+        """An Enter pressed while the first-launch tests ran - minutes, on
+        some computers - would otherwise skip the result they end with."""
+        happened = []
+        monkeypatch.setattr(console, "forget_keys_pressed", lambda: happened.append("forgot"))
+        monkeypatch.setattr(builtins, "input", lambda _prompt="": happened.append("asked") or "")
+        console.pause("...")
+        assert happened == ["forgot", "asked"]
+
+
+class TestForgettingKeysPressed:
+    @pytest.mark.skipif(sys.platform == "win32", reason="a POSIX terminal")
+    def test_a_terminal_forgets_what_was_typed(self, monkeypatch):
+        import select
+
+        leader, follower = os.openpty()
+        try:
+            monkeypatch.setattr(sys, "stdin", os.fdopen(follower, closefd=False))
+            os.write(leader, b"\nPaga\npartly typ")
+            console.forget_keys_pressed()
+            assert select.select([follower], [], [], 0.2)[0] == []
+        finally:
+            os.close(leader)
+            os.close(follower)
+
+    def test_a_windows_console_forgets_what_was_typed(self, monkeypatch):
+        class Console:
+            def __init__(self, typed):
+                self.typed = list(typed)
+
+            def kbhit(self):
+                return bool(self.typed)
+
+            def getwch(self):
+                return self.typed.pop(0)
+
+        typed = Console("\rPaga\r")
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setitem(sys.modules, "msvcrt", typed)
+        console.forget_keys_pressed()
+        assert typed.typed == []
+
+    def test_nothing_to_forget_is_fine(self, monkeypatch):
+        monkeypatch.setattr(sys, "stdin", object())
+        console.forget_keys_pressed()
+
 
 class FakeKernel32:
     """The three Windows console functions the program uses, by their own names."""

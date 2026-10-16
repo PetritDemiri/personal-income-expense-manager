@@ -30,7 +30,7 @@ The first run, where an empty database hands out the credentials for its adminis
 
 ## Install
 
-**Windows:** download `financat.exe` from the [latest release](https://github.com/PetritDemiri/personal-income-expense-manager/releases/latest) and open it. Nothing else needs installing — Python and the program are both inside it. The first time it opens it runs its own tests, which takes one to three minutes; see [The first launch](#the-first-launch). It is not signed, so Windows may say it protected your PC: choose *More info*, then *Run anyway*. Some antivirus programs also distrust executables built this way when they are new.
+**Windows:** download `financat.exe` from the [latest release](https://github.com/PetritDemiri/personal-income-expense-manager/releases/latest) and open it. Nothing else needs installing — Python and the program are both inside it. The first time it opens it runs its own tests, which usually takes one to five minutes; see [The first launch](#the-first-launch). It is not signed, so Windows may say it protected your PC: choose *More info*, then *Run anyway*. Some antivirus programs also distrust executables built this way when they are new.
 
 **From the source**, anywhere Python 3.9 or later runs:
 
@@ -223,11 +223,11 @@ The log records whose account changed, not who changed it. SQLite triggers canno
 
 ### The first launch
 
-The first time a person opens the program, it checks itself before anything else: it runs its own test suite on screen, says how it went, and waits for Enter. That takes one to three minutes, and happens once — it writes down that it has run in `Documents\Financat\Testet\testet.txt`, with the date, the version and how many tests passed, failed or were skipped. Delete that file to run them again. If the tests cannot run at all, the screen and the file say why.
+The first time a person opens the program, it checks itself before anything else: it runs its own test suite on screen, says how it went, and waits for Enter. That usually takes one to five minutes, and happens once — it writes down that it has run in `Documents\Financat\Testet\testet.txt`, with the date, the version and how many tests passed, failed or were skipped. Delete that file to run them again. If the tests cannot run at all, the screen and the file say why. A key pressed while they run does not skip the result: the pause after them forgets anything typed before it.
 
 They run only where they exist — a copy of the source with pytest installed, or the `.exe`, which has both packed inside it — and only for a person at a terminal: a script, a piped command or any run with flags never waits on them. `FINANCE_SKIP_TESTS=1` switches them off.
 
-They run in a process of their own rather than inside the program. pytest takes over the standard streams while it works and, on Windows, does not hand the originals back — inside the program, the password typed at the first-run setup afterwards was shown as it was typed. A copy of the source starts that process with Python; the `.exe` has no Python beside it, so it starts a second copy of itself in its test mode, `--run-bundled-tests`, which runs pytest inside. That copy is started as a program of its own, which unpacks itself afresh: started as a part of the first, sharing what it had unpacked, it never ran on Windows.
+They run in a process of their own rather than inside the program. pytest takes over the standard streams while it works and, on Windows, does not hand the originals back — inside the program, the password typed at the first-run setup afterwards was shown as it was typed. A copy of the source starts that process with Python; the `.exe` has no Python beside it, so it starts a second copy of itself in its test mode, `--run-bundled-tests`, which runs pytest inside. That copy is started as a program of its own, which unpacks itself afresh: started as a part of the first, sharing what it had unpacked, it never ran on Windows. And it is handed each of its streams directly — no keyboard, the screen as Python has it, a pipe for its errors — because inside the `.exe` Windows' own record of where they are can name handles already closed, and then it refuses to start the copy at all.
 
 ### An unclaimed database
 
@@ -552,12 +552,12 @@ The suite gives every test folders of its own and switches the first-launch test
 ```powershell
 pip install -e ".[dev,build]"
 pyinstaller windows/financat.spec --noconfirm     # writes dist\financat.exe
-dist\financat.exe --run-bundled-tests             # the tests packed inside it
+dist\financat.exe --run-bundled-tests             # checks itself as its first launch does
 ```
 
 PyInstaller builds for the system it runs on, so the `.exe` is built on Windows. The test suite goes inside it with pytest, so the `.exe` checks itself on its first launch the way a copy of the source does, and so does the program's own source, which some tests read.
 
-Releases build it themselves. Pushing a version tag starts `.github/workflows/release.yml` on a Windows machine at GitHub: it runs the tests, builds the `.exe`, runs the tests packed inside it, and publishes the release with the `.exe` attached and that version's changelog entry as its notes. A tag that is not the program's version stops it before anything is built. Started by hand from the Actions tab, it does the same without publishing anything, and keeps the `.exe` with the run to try first.
+Releases build it themselves. Pushing a version tag starts `.github/workflows/release.yml` on a Windows machine at GitHub: it runs the tests, builds the `.exe`, has the `.exe` check itself exactly as its first launch would — a second copy running the tests packed inside it — and publishes the release with the `.exe` attached and that version's changelog entry as its notes. A tag that is not the program's version stops it before anything is built. Started by hand from the Actions tab, it does the same without publishing anything, and keeps the `.exe` with the run to try first.
 
 ### Recording the demo GIFs
 

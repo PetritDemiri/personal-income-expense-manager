@@ -48,8 +48,9 @@ jobs:
       - name: Build financat.exe
         run: pyinstaller windows/financat.spec --noconfirm
 
-      # The tests packed inside it, run by the .exe itself - what a first
-      # launch does on somebody's computer.
+      # The .exe checks itself exactly as its first launch does on somebody's
+      # computer: it starts a second copy of itself, which runs the tests
+      # packed inside it, and fails unless every one of them passed.
       - name: Run the tests inside the .exe
         run: dist/financat.exe --run-bundled-tests
 
