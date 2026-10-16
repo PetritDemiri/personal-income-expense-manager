@@ -148,6 +148,15 @@ class TestTheRecord:
         assert text.startswith("First tests\n")
         assert "Passed: 5" in text
 
+    def test_why_they_could_not_run(self, first_launch):
+        path = write_record(Result(NOT_RUN, reason="exit code 4: RuntimeError: broken"))
+        lines = open(path, encoding="utf-8").read().splitlines()
+        assert lines[-1] == "Arsyeja: exit code 4: RuntimeError: broken"
+
+    def test_no_reason_when_there_is_none(self, first_launch):
+        path = write_record(Result(RAN, passed=5))
+        assert "Arsyeja" not in open(path, encoding="utf-8").read()
+
     def test_an_unwritable_place_is_survivable(self, tmp_path):
         blocker = tmp_path / "file"
         blocker.write_text("")
@@ -243,7 +252,50 @@ class TestRunningARealSuite:
             raise OSError("no such file")
 
         monkeypatch.setattr(selftest.subprocess, "run", missing)
-        assert run_suite(tiny).outcome == NOT_RUN
+        assert run_suite(tiny) == Result(NOT_RUN, reason="no such file")
+
+    def test_a_suite_that_cannot_start_says_why(self, tiny, capsys):
+        """No report means no counts - but how it ended is still known."""
+        conftest = os.path.join(tiny, "conftest.py")
+        with open(conftest, "w", encoding="utf-8") as handle:
+            handle.write('raise RuntimeError("broken on purpose")\n')
+        result = run_suite(tiny)
+        assert result.outcome == NOT_RUN
+        assert result.reason == "exit code 4: RuntimeError: broken on purpose"
+        # And what it said is shown, as it would have been.
+        assert "broken on purpose" in capsys.readouterr().err
+
+
+class TestHowARunEnded:
+    @staticmethod
+    def finished(code, said):
+        return selftest.subprocess.CompletedProcess([], code, stderr=said)
+
+    def test_its_exit_code_and_its_last_words(self):
+        said = "Traceback (most recent call last):\n  ...\nValueError: no\n\n"
+        assert selftest.how_it_ended(self.finished(1, said)) == "exit code 1: ValueError: no"
+
+    def test_pytests_mark_is_left_off(self):
+        said = "E   RuntimeError: broken\n"
+        assert selftest.how_it_ended(self.finished(4, said)) == "exit code 4: RuntimeError: broken"
+
+    def test_the_last_error_rather_than_the_last_line(self):
+        said = (
+            "ERROR: usage: financat [options] [file_or_dir]\n"
+            "financat: error: unrecognized arguments: --no-such-option\n"
+            "  inifile: None\n"
+            "  rootdir: C:\\Temp\\_MEI123\n"
+        )
+        assert selftest.how_it_ended(self.finished(4, said)) == (
+            "exit code 4: financat: error: unrecognized arguments: --no-such-option"
+        )
+
+    def test_whatever_it_said_last_when_it_reported_no_error(self):
+        assert selftest.how_it_ended(self.finished(2, "stopped\n")) == "exit code 2: stopped"
+
+    def test_a_run_that_said_nothing(self):
+        assert selftest.how_it_ended(self.finished(3221225477, "")) == "exit code 3221225477"
+        assert selftest.how_it_ended(self.finished(1, None)) == "exit code 1"
 
 
 class TestInsideTheExe:
@@ -254,16 +306,25 @@ class TestInsideTheExe:
     inside the .exe, the first time it opens.
     """
 
+    class Started:
+        """What run_suite started, and with what environment."""
+
+        def __init__(self):
+            self.commands = []
+            self.environments = []
+
+        def __call__(self, command, **kwargs):
+            self.commands.append(command)
+            self.environments.append(kwargs["env"])
+            return selftest.subprocess.CompletedProcess(command, 0, stderr="")
+
     @pytest.fixture
     def started(self, monkeypatch):
         """What run_suite would have started, without starting anything."""
-        commands = []
-
-        def record(command, **_kwargs):
-            commands.append(command)
-
-        monkeypatch.setattr(selftest.subprocess, "run", record)
-        return commands
+        started = self.Started()
+        monkeypatch.setattr(selftest.subprocess, "run", started)
+        monkeypatch.delenv(selftest.FRESH_COPY_ENV, raising=False)
+        return started
 
     @staticmethod
     def without_report(command):
@@ -272,12 +333,12 @@ class TestInsideTheExe:
     def test_a_copy_of_the_source_starts_python(self, started, monkeypatch, tmp_path):
         monkeypatch.delattr(sys, "frozen", raising=False)
         run_suite(str(tmp_path / "tests"))
-        assert started[0][:3] == [sys.executable, "-m", "pytest"]
+        assert started.commands[0][:3] == [sys.executable, "-m", "pytest"]
 
     def test_the_exe_starts_itself_in_its_test_mode(self, started, monkeypatch, tmp_path):
         monkeypatch.setattr(sys, "frozen", True, raising=False)
         run_suite(str(tmp_path / "tests"))
-        assert started[0][:2] == [sys.executable, selftest.TEST_MODE]
+        assert started.commands[0][:2] == [sys.executable, selftest.TEST_MODE]
 
     def test_both_run_the_same_tests_the_same_way(self, started, monkeypatch, tmp_path):
         tests = str(tmp_path / "tests")
@@ -285,9 +346,21 @@ class TestInsideTheExe:
         run_suite(tests)
         monkeypatch.setattr(sys, "frozen", True, raising=False)
         run_suite(tests)
-        source, exe = (self.without_report(command) for command in started)
+        source, exe = (self.without_report(command) for command in started.commands)
         assert source[3:] == exe[2:] == selftest.pytest_arguments(tests)
         assert source[3] == tests
+
+    def test_the_exes_second_copy_is_a_program_of_its_own(self, started, monkeypatch, tmp_path):
+        """Started as a part of the first, sharing what it unpacked, it never
+        ran on Windows - and said nothing about why."""
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        run_suite(str(tmp_path / "tests"))
+        assert started.environments[0][selftest.FRESH_COPY_ENV] == "1"
+
+    def test_python_is_started_as_it_always_was(self, started, monkeypatch, tmp_path):
+        monkeypatch.delattr(sys, "frozen", raising=False)
+        run_suite(str(tmp_path / "tests"))
+        assert selftest.FRESH_COPY_ENV not in started.environments[0]
 
     def test_the_test_mode_runs_pytest_inside(self, monkeypatch):
         given = []
@@ -344,6 +417,13 @@ class TestTheFirstLaunch:
     def test_a_run_that_could_not_start_is_said_so(self, first_launch, capsys):
         run_on_first_launch(Pauses(), run=FakeRun(Result(NOT_RUN)))
         assert "nuk mund te ekzekutoheshin" in capsys.readouterr().out
+
+    def test_and_why(self, first_launch, capsys):
+        result = Result(NOT_RUN, reason="exit code 4: RuntimeError: broken")
+        run_on_first_launch(Pauses(), run=FakeRun(result))
+        shown = capsys.readouterr().out
+        assert "Arsyeja: exit code 4: RuntimeError: broken" in shown
+        assert record_path() in shown
 
     def test_nothing_happens_when_they_are_not_due(self, first_launch, monkeypatch, capsys):
         monkeypatch.setenv("FINANCE_SKIP_TESTS", "1")

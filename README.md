@@ -223,11 +223,11 @@ The log records whose account changed, not who changed it. SQLite triggers canno
 
 ### The first launch
 
-The first time a person opens the program, it checks itself before anything else: it runs its own test suite on screen, says how it went, and waits for Enter. That takes one to three minutes, and happens once — it writes down that it has run in `Documents\Financat\Testet\testet.txt`, with the date, the version and how many tests passed, failed or were skipped. Delete that file to run them again.
+The first time a person opens the program, it checks itself before anything else: it runs its own test suite on screen, says how it went, and waits for Enter. That takes one to three minutes, and happens once — it writes down that it has run in `Documents\Financat\Testet\testet.txt`, with the date, the version and how many tests passed, failed or were skipped. Delete that file to run them again. If the tests cannot run at all, the screen and the file say why.
 
 They run only where they exist — a copy of the source with pytest installed, or the `.exe`, which has both packed inside it — and only for a person at a terminal: a script, a piped command or any run with flags never waits on them. `FINANCE_SKIP_TESTS=1` switches them off.
 
-They run in a process of their own rather than inside the program. pytest takes over the standard streams while it works and, on Windows, does not hand the originals back — inside the program, the password typed at the first-run setup afterwards was shown as it was typed. A copy of the source starts that process with Python; the `.exe` has no Python beside it, so it starts itself in its test mode, `--run-bundled-tests`, and runs pytest inside.
+They run in a process of their own rather than inside the program. pytest takes over the standard streams while it works and, on Windows, does not hand the originals back — inside the program, the password typed at the first-run setup afterwards was shown as it was typed. A copy of the source starts that process with Python; the `.exe` has no Python beside it, so it starts a second copy of itself in its test mode, `--run-bundled-tests`, which runs pytest inside. That copy is started as a program of its own, which unpacks itself afresh: started as a part of the first, sharing what it had unpacked, it never ran on Windows.
 
 ### An unclaimed database
 

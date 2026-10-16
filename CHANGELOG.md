@@ -39,14 +39,18 @@ anyone's way. And from this version on, every release comes with a Windows
 - `financat.exe` on every release page: the program for Windows in one file,
   with nothing else to install. It checks itself the first time it opens, as a
   copy of the source does - the tests are packed inside it, with pytest, and
-  since it has no Python beside it to run them with, it starts itself in a
-  test mode that runs them inside. It is not signed, so Windows may warn
-  before opening it the first time.
+  since it has no Python beside it to run them with, it starts a second copy
+  of itself, in a test mode that runs them inside. It is not signed, so
+  Windows may warn before opening it the first time.
 
 ### Changed
 
 - The users menu has a new entry for everyone, third, so going back is now 4
   for an ordinary user and 10 for an administrator, rather than 3 and 9.
+- When the first-launch tests cannot run, the screen and `testet.txt` now say
+  why: the error that stopped them starting, or how the run ended - its exit
+  code and the last error it reported. Before, they said only that the tests
+  could not be run.
 
 ### Notes
 
@@ -69,7 +73,13 @@ anyone's way. And from this version on, every release comes with a Windows
   publishes nothing and keeps the `.exe` to try first. PyInstaller is needed
   only for building; the program itself still uses nothing but Python's
   standard library.
-- 1600 tests, up from 1489. Nine of the new ones need a real terminal of the
+- The second copy the `.exe` starts for its tests is started as a program of
+  its own, which unpacks itself afresh. The first build started it as a part
+  of the copy that started it, sharing what that one had unpacked - which is
+  how PyInstaller starts such a copy unless told otherwise. On Windows that
+  copy never ran the tests, and said nothing about why; one of the tests
+  packed inside caught it before anything was published.
+- 1611 tests, up from 1489. Nine of the new ones need a real terminal of the
   kind Linux and macOS have, and are skipped on Windows.
 
 ## [3.11.2] — 2026-10-14

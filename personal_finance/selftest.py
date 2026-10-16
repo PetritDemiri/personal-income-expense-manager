@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from xml.etree import ElementTree
 
 from . import __version__
-from .colors import BOLD, CYAN, GREEN, RED, YELLOW, paint
+from .colors import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from .i18n import t
 from .locations import TESTS_FOLDER, app_subdirectory
 
@@ -40,6 +40,9 @@ RECORD_FILE = "testet.txt"
 # What the .exe is started with to run the tests packed inside it. Read by the
 # .exe's own starting point before anything else, never by the program.
 TEST_MODE = "--run-bundled-tests"
+# Tells PyInstaller's start-up code that a copy of the .exe is a program of its
+# own rather than a part of the copy that started it.
+FRESH_COPY_ENV = "PYINSTALLER_RESET_ENVIRONMENT"
 
 # How a run ended, as written into the record.
 RAN = "ran"
@@ -57,6 +60,9 @@ class Result:
     passed: int = 0
     failed: int = 0
     skipped: int = 0
+    # Why they could not run, when they could not: the error that stopped
+    # them starting, or how the run ended without a report.
+    reason: str = ""
 
 
 def record_path():
@@ -106,6 +112,9 @@ def run_suite(tests):
     Its output goes straight to the window, exactly as running pytest by hand
     would show it. The counts come from the JUnit report pytest writes, not
     from reading that output. Ctrl+C stops the tests rather than the program.
+
+    When they cannot run, the result says why. What the run wrote to standard
+    error is kept for that, and still shown, once it has ended.
     """
     root = os.path.dirname(tests)
     handle, report = tempfile.mkstemp(prefix="financat-", suffix=".xml")
@@ -116,19 +125,55 @@ def run_suite(tests):
     # machine have no business in a check of this program.
     environment[SKIP_ENV] = "1"
     environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    if getattr(sys, "frozen", False):
+        # The .exe's second copy starts as a program of its own, unpacking
+        # itself afresh, rather than as a part of this one sharing what this
+        # one unpacked. Started as a part, on Windows it never ran the tests
+        # and said nothing about why.
+        environment[FRESH_COPY_ENV] = "1"
     command = [*pytest_command(), *pytest_arguments(tests), f"--junit-xml={report}"]
     try:
-        subprocess.run(command, cwd=root, env=environment, check=False)
-        return read_report(report)
-    except KeyboardInterrupt:
-        return Result(INTERRUPTED)
-    except OSError:
-        return Result(NOT_RUN)
+        try:
+            finished = subprocess.run(
+                command,
+                cwd=root,
+                env=environment,
+                check=False,
+                stderr=subprocess.PIPE,
+                text=True,
+                errors="replace",
+            )
+        except KeyboardInterrupt:
+            return Result(INTERRUPTED)
+        except OSError as error:
+            return Result(NOT_RUN, reason=str(error))
+        if finished.stderr:
+            sys.stderr.write(finished.stderr)
+            sys.stderr.flush()
+        result = read_report(report)
+        if result.outcome == NOT_RUN:
+            result.reason = how_it_ended(finished)
+        return result
     finally:
         try:
             os.remove(report)
         except OSError:
             pass
+
+
+def how_it_ended(finished):
+    """A run that wrote no report: its exit code, and the last error it
+    reported - or, where it reported none, the last thing it said."""
+    said = [line.strip() for line in (finished.stderr or "").splitlines() if line.strip()]
+    errors = [line for line in said if "error" in line.lower()]
+    reason = f"exit code {finished.returncode}"
+    if said:
+        last = (errors or said)[-1]
+        # pytest marks the line of an error with "E" in front.
+        if last.startswith("E "):
+            last = last[1:].strip()
+        reason += f": {last}"
+    return reason
 
 
 def pytest_command():
@@ -212,6 +257,8 @@ def write_record(result, path=None):
         f"{t('record_failed')}: {result.failed}",
         f"{t('record_skipped')}: {result.skipped}",
     ]
+    if result.reason:
+        lines.append(f"{t('record_reason')}: {result.reason}")
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as handle:
@@ -247,6 +294,8 @@ def run_on_first_launch(pause, run=run_suite):
         print(paint(t("tests_interrupted"), YELLOW))
     elif result.outcome == NOT_RUN:
         print(paint(t("tests_not_run"), YELLOW))
+        if result.reason:
+            print(paint(f"{t('record_reason')}: {result.reason}", DIM))
     elif result.failed:
         print(paint(t("tests_some_failed", count=result.failed), BOLD, RED))
     else:
